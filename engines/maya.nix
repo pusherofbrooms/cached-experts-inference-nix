@@ -1,6 +1,11 @@
 { pkgs, src }:
 let
   metadata = builtins.fromJSON (builtins.readFile ./metadata.json);
+  ggmlSource = pkgs.fetchzip {
+    # Exact commit required by upstream CMakeLists.txt / MMQ patch.
+    url = "https://github.com/ggml-org/llama.cpp/archive/${metadata.ggml.rev}.tar.gz";
+    hash = metadata.ggml.hash;
+  };
   # Inspected upstream: https://github.com/mw00/project-maya
   # No models or launcher-managed dependencies are downloaded.
   toolsPackage = pkgs.stdenv.mkDerivation {
@@ -60,7 +65,7 @@ let
     };
   };
 
-  # Experimental, UNTESTED: evaluated only, not compiled or run on a CUDA GPU.
+  # Build-verified for sm_86; GPU/model execution remains untested.
   # Requires allowUnfree = true. Build explicitly via .cudaPackage; tools stay
   # independent of CUDA. Override cmakeFlags for GPUs other than sm_86 (>= 75).
   # Upstream's CUDA path always builds MMQ when native experts are enabled;
@@ -72,6 +77,8 @@ let
 
     nativeBuildInputs = [ pkgs.cmake pkgs.git pkgs.cudaPackages.cuda_nvcc ];
     buildInputs = [
+      pkgs.cudaPackages.cuda_nvtx
+      pkgs.cudaPackages.cuda_profiler_api
       pkgs.cudaPackages.cuda_cudart
       pkgs.cudaPackages.libcublas
       pkgs.cudaPackages.cuda_cccl
@@ -85,12 +92,14 @@ let
       "-DCMAKE_CUDA_ARCHITECTURES=86"
       "-DCMAKE_CUDA_RUNTIME_LIBRARY=Shared"
       "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
-      "-DSTRATA_GGML_DIR=${pkgs.fetchzip {
-        # Exact commit required by upstream CMakeLists.txt / MMQ patch.
-        url = "https://github.com/ggml-org/llama.cpp/archive/${metadata.ggml.rev}.tar.gz";
-        hash = "${metadata.ggml.hash}";
-      }}"
     ];
+    # CMake's MMQ copy preserves permissions before git apply. Store sources
+    # are read-only, so use a writable checkout (shared with the HIP build).
+    preConfigure = ''
+      cp -R ${ggmlSource} ggml-source
+      chmod -R u+w ggml-source
+      cmakeFlagsArray+=("-DSTRATA_GGML_DIR=$PWD/ggml-source")
+    '';
     # Avoid upstream's default target: it includes GPU/model-dependent tests
     # even with STRATA_BUILD_TESTS=OFF. No Python launcher/model downloads.
     buildPhase = ''
@@ -113,7 +122,7 @@ let
       cudaInferenceTested = false;
     };
     meta = {
-      description = "Experimental Maya CUDA inference engines (untested)";
+      description = "Experimental Maya CUDA inference engines (inference untested)";
       homepage = "https://github.com/mw00/project-maya";
       license = pkgs.lib.licenses.mit;
       platforms = [ "x86_64-linux" ];
@@ -125,7 +134,7 @@ let
   # Override cmakeFlags to select CMAKE_HIP_ARCHITECTURES (default gfx1100).
   # No runtime --backend flag: these are backend-specific native binaries.
   rocmPackage = pkgs.stdenv.mkDerivation (let old = cudaPackage; in {
-    inherit (old) version src buildPhase installPhase doCheck;
+    inherit (old) version src preConfigure buildPhase installPhase doCheck;
     pname = "maya-rocm";
     nativeBuildInputs = [ pkgs.cmake pkgs.git pkgs.rocmPackages.llvm.clang ];
     buildInputs = with pkgs.rocmPackages; [ rocm-device-libs clr hipblas hipblaslt rocwmma ];
@@ -148,7 +157,7 @@ let
       rocmInferenceTested = false;
     };
     meta = old.meta // {
-      description = "Experimental Maya ROCm inference engines (untested)";
+      description = "Experimental Maya ROCm inference engines (inference untested)";
     };
   });
 in

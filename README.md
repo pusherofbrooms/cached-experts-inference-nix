@@ -36,9 +36,10 @@ Both engines default to ROCm `gfx1100` (RX 7900 XT/XTX); CUDA defaults to
 architecture `86`. These are configured build targets, **not a tested GPU
 compatibility matrix**. Strata 0.1.47 and Maya 0.1.27 have successfully compiled
 with the pinned ROCm toolchain for `gfx1100`; real-model inference remains
-unvalidated here. CUDA packages have been evaluated but not compiled or run.
-No CUDA hardware is available for local testing; CUDA support remains experimental pending
-external build and inference reports. Passing Python tests does not validate GPU
+unvalidated here. Both engines also successfully compiled with the pinned CUDA
+toolchain for architecture `86`; neither has been run on CUDA hardware here.
+No CUDA hardware is available for local testing; CUDA inference remains
+experimental pending external inference reports. Passing Python tests does not validate GPU
 kernels, driver compatibility or numerical correctness.
 
 To target another AMD GPU, identify its architecture with `rocminfo` (if needed,
