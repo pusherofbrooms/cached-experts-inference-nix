@@ -78,6 +78,14 @@ private paths or credentials).
 
 ## Local runtime preparation
 
+**Desktop GPU headroom:** Strata config generation enables `--expert-cache auto`.
+If the GPU also drives your desktop, consider adding `--vram-reserve-mib 2048`
+to the config command to leave room for desktop applications. This is a starting
+point, not a universal requirement; adjust for your VRAM capacity and workload.
+No reserve is imposed by this wrapper unless requested. Re-generating an existing
+config requires `--force`; include the reserve flag again. This headroom is not an
+OS-enforced reservation or a guarantee against GPU stalls.
+
 Downloads remain separate: `nix run .#download-model -- REPO DEST --revision COMMIT --include '*.gguf'`.
 No wrapper selects or downloads a model. Keep every GGUF shard together.
 
