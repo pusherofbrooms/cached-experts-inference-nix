@@ -26,8 +26,54 @@ nix run .#server-maya -- --config /data/maya.json
 
 Servers bind to loopback by default. See [model preparation](docs/model-preparation.md)
 for complete download → pack → config → HTTP server examples and tuning options.
-Linux GPU builds, real model conversion and inference still require hardware
-validation; passing the unit tests is not an end-to-end validation.
+Both ROCm engines build successfully for `gfx1100`. Real model conversion and
+GPU inference still require validation; passing builds and unit tests is not an
+end-to-end validation.
+
+### GPU support status and architecture selection
+
+Both engines default to ROCm `gfx1100` (RX 7900 XT/XTX); CUDA defaults to
+architecture `86`. These are configured build targets, **not a tested GPU
+compatibility matrix**. Strata 0.1.47 and Maya 0.1.27 have successfully compiled
+with the pinned ROCm toolchain for `gfx1100`; real-model inference remains
+unvalidated here. CUDA packages have been evaluated but not compiled or run.
+No CUDA hardware is available for local testing; CUDA support remains experimental pending
+external build and inference reports. Passing Python tests does not validate GPU
+kernels, driver compatibility or numerical correctness.
+
+To target another AMD GPU, identify its architecture with `rocminfo` (if needed,
+run `nix shell nixpkgs#rocmPackages.rocminfo -c rocminfo`), then edit
+`settings.nix`:
+
+```nix
+rocmArchitecture = "gfx1101"; # Example target only; not a support claim.
+```
+
+Build only the engine you need:
+
+```sh
+nix build .#strata-rocm --out-link result-strata
+# Or independently:
+nix build .#maya-rocm --out-link result-maya
+```
+
+This setting supplies `CMAKE_HIP_ARCHITECTURES` to both engine definitions and
+is also used by their ROCm preparation packages. Only the selected package is
+built. Changing it changes the build derivation and can require recompilation;
+it is not a runtime GPU switch. Regenerate your server config with the matching
+preparation package after rebuilding so it references the new engine path.
+
+Architecture selection alone does not enable arbitrary AMD hardware. Strata's
+current HIP configuration uses its wave32 path and explicitly disables
+`STRATA_HIP_GFX906`; CDNA/wave64 support needs a separate build configuration,
+not just a different `gfx` string. Maya's HIP configuration is likewise centered
+on `gfx1100` with MMQ and rocWMMA; other targets are not validated here. Host GPU
+drivers and device permissions remain external to this flake.
+
+For GPU bug reports, include the engine/input revision, GPU model and architecture,
+driver version, build command and logs. For inference failures, also include the
+model/quantization, preparation options and runtime configuration (redacting
+private paths or credentials).
 
 ## Local runtime preparation
 

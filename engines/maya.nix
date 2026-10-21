@@ -137,6 +137,9 @@ let
       "-DSTRATA_ENABLE_HIP=ON"
       "-DSTRATA_PREFILL_MMQ=ON"
       "-DCMAKE_HIP_ARCHITECTURES=gfx1100"
+      # HIP uses the unwrapped ROCm clang: buildInputs alone does not expose
+      # rocWMMA's separate Nix-store include directory to HIP compilation.
+      "-DCMAKE_HIP_FLAGS=-I${pkgs.rocmPackages.rocwmma}/include"
       "-DCMAKE_HIP_COMPILER=${pkgs.rocmPackages.llvm.clang}/bin/clang++"
       "-DCMAKE_HIP_COMPILER_ROCM_ROOT=${pkgs.rocmPackages.clr}"
     ];
