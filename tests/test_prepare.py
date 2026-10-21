@@ -85,6 +85,58 @@ class Preparation(unittest.TestCase):
                 for path, data in saved.items():
                     self.assertEqual(path.read_bytes(), data)
 
+    def test_inherited_ple_is_protected(self):
+        for alias in ('direct', 'symlink', 'hardlink'):
+            for sidecar in (False, True):
+                with self.subTest(alias=alias, sidecar=sidecar), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root/'inputs').mkdir()
+                    ple = root/'ple.bin'
+                    ple.write_bytes(b'PLE weights')
+                    pack = root/'pack'
+                    pack_manifest = Path(str(pack) + '.manifest.json')
+                    pack_manifest.write_text(json.dumps({'options': {'ple_gguf': str(ple)}}))
+                    output = root/'run.json'
+                    victim = Path(str(output) + '.manifest.json') if sidecar else output
+                    if alias == 'direct':
+                        ple.rename(victim)
+                        ple = victim
+                        pack_manifest.write_text(json.dumps({'options': {'ple_gguf': str(ple)}}))
+                    elif alias == 'symlink':
+                        victim.symlink_to(ple)
+                    else:
+                        victim.hardlink_to(ple)
+                    before = pack_manifest.read_bytes()
+                    with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                        main(['strata', 'config', '--gguf', str(root/'inputs/a.gguf'),
+                              '--pack', str(pack), '--config', str(output),
+                              '--exe', '/bin/engine', '--force'])
+                    self.assertEqual(ple.read_bytes(), b'PLE weights')
+                    self.assertEqual(pack_manifest.read_bytes(), before)
+                    if sidecar:
+                        self.assertFalse(output.exists())
+
+    def test_output_aliases_are_rejected(self):
+        for alias in ('symlink', 'dangling-symlink', 'hardlink'):
+            with self.subTest(alias=alias), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                output = root/'run.json'
+                manifest = Path(str(output) + '.manifest.json')
+                if alias != 'dangling-symlink':
+                    output.write_bytes(b'original config')
+                if alias == 'hardlink':
+                    manifest.hardlink_to(output)
+                else:
+                    manifest.symlink_to(output)
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(['strata', 'config', '--gguf', str(root/'a.gguf'),
+                          '--pack', str(root/'pack'), '--config', str(output),
+                          '--exe', '/bin/engine', '--force'])
+                if alias == 'dangling-symlink':
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(output.read_bytes(), b'original config')
+
     def test_packer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()

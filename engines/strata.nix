@@ -76,7 +76,7 @@ let
         homepage = "https://github.com/Niko1221/Strata";
         license = lib.licenses.mit;
         platforms = [ "x86_64-linux" ];
-        mainProgram = if tools then "strata-plan" else "strata strata-device";
+        mainProgram = if tools then "strata-plan" else "strata";
       };
     };
 in

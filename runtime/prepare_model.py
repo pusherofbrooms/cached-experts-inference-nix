@@ -54,6 +54,13 @@ def main(argv=None):
     a.exe = a.exe or (absolute(os.environ['PREPARE_' + a.engine.upper() + '_EXE']) if os.environ.get('PREPARE_' + a.engine.upper() + '_EXE') else None)
     if a.action == 'config' and (not a.config or not a.exe):
         p.error('config requires --config and --exe (absolute native executable path)')
+    options = {}
+    if a.action == 'config':
+        pack_manifest = Path(str(a.pack) + '.manifest.json')
+        if pack_manifest.is_file():
+            options = json.loads(pack_manifest.read_text()).get('options', {})
+        if not a.ple_gguf and options.get('ple_gguf'):
+            a.ple_gguf = absolute(options['ple_gguf'])
     target = a.pack if a.action == 'pack' else a.config
     # Enumerate names without loading weights, and before resolving symlinks:
     # shard aliases can point outside the directory containing the supplied GGUF.
@@ -67,8 +74,19 @@ def main(argv=None):
     def locations(path):
         return (path, path.resolve())
 
+    def aliases(left, right):
+        # resolve handles symlinks (including dangling ones); samefile also
+        # catches hard links, whose resolved pathnames remain distinct.
+        return left.resolve() == right.resolve() or (
+            left.exists() and right.exists() and left.samefile(right))
+
+    if aliases(target, manifest) or any(
+            left in right.parents
+            for left, right in ((target.resolve(), manifest.resolve()),
+                                (manifest.resolve(), target.resolve()))):
+        p.error('outputs collide with each other')
     for output in (target, manifest):
-        if any(out == src or out in src.parents
+        if any(aliases(output, path) for path in protected if path) or any(out == src or out in src.parents
                for out in locations(output)
                for path in protected if path for src in locations(path)) or any(
                    src in out.parents
@@ -104,10 +122,6 @@ def main(argv=None):
         args = (['--glm-pack', str(a.pack)] if a.engine == 'maya' else
                 ['--pack', str(a.pack), '--native', str(a.gguf)])
         args += ['--max-context', str(a.max_context)]
-        pack_manifest = Path(str(a.pack) + '.manifest.json')
-        options = {}
-        if pack_manifest.is_file():
-            options = json.loads(pack_manifest.read_text()).get('options', {})
         mmap = a.mmap_experts if a.mmap_experts is not None else options.get('experts_bin', False)
         if mmap:
             args.append('--mmap-experts')
@@ -115,10 +129,6 @@ def main(argv=None):
             value = getattr(a, key)
             if value is not None:
                 args += ['--' + key.replace('_', '-'), str(value)]
-        if not a.ple_gguf:
-            ple = options.get('ple_gguf')
-            if ple:
-                a.ple_gguf = absolute(ple)
         if a.ple_gguf:
             args += ['--ple-gguf', str(a.ple_gguf)]
         config = {'exe': str(a.exe), 'args': args, 'cwd': str(a.pack.parent),
