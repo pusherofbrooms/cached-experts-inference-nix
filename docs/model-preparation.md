@@ -49,9 +49,9 @@ nix run .#server-strata -- --config /data/qwen.json
 
 # Maya GLM-5.3-Flash (not DeepSeek or EXL3).
 nix run .#prepare-maya -- maya pack --gguf /data/glm/first.gguf \
-  --pack /data/packs/glm --compat-bf16
+  --pack /data/glm/pack --compat-bf16
 nix run .#prepare-maya -- maya config --gguf /data/glm/first.gguf \
-  --pack /data/packs/glm --config /data/glm.json \
+  --pack /data/glm/pack --config /data/glm.json \
   --max-context 4096 --expert-cache auto --vram-reserve-mib 1024
 nix run .#server-maya -- --config /data/glm.json
 ```
@@ -119,3 +119,28 @@ must supply the profile explicitly; an unavailable profile fails before writes.
 Profile aliases are protected against config, manifest and log collisions even
 with `--force`. These defaults do not affect Maya or packing. The default
 `--max-context` remains 4096.
+
+### Maya shard layout and config reruns
+
+Maya's pinned `iq_pack.Model` discovers `*-00001-of-000NN.gguf` siblings by
+basename (or just the supplied file for an unsplit model). GLM `load_pack`
+opens the recorded shard names in `pack/..`; `--gguf` is not a native-path
+argument in Maya configs. Keep all shards in `/data/glm/` with the pack at
+`/data/glm/pack`, as above. Alternatively, manually create same-basename
+symlinks in an existing pack's parent to **every** intended input shard.
+Symlinked download snapshots are supported; unrelated same-name files are not.
+The wrapper does not move files or create symlinks.
+
+Both Maya pack and config check this layout before changing outputs, including
+with `--force`. Unlike Strata config, Maya config requires existing shards;
+it cannot generate a config for nonexistent future download paths. This is a
+filename/existence/identity check, not GGUF content or pack compatibility
+validation. Config still inherits packing options (such as `experts_bin`) from
+the pack manifest when present; that manifest does not replace layout checks.
+
+Adding layout symlinks needs **no repack**. Rerun only `maya config` with the
+same paths and `--force` to replace config and manifest safely. Force does not
+bypass input/output collision checks; forcing a pack is an upstream in-place
+update, not a clean rebuild. Maya now writes `<config>.log` through the HTTP
+frontend, with the same path safety protections as Strata. Config generation
+does not create or truncate the log or start a server.

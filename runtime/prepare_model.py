@@ -4,6 +4,7 @@ import importlib.util
 import json
 from itertools import combinations
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -112,7 +113,7 @@ def main(argv=None):
         return left.resolve() == right.resolve() or (
             left.exists() and right.exists() and left.samefile(right))
 
-    log = Path(str(a.config) + '.log') if a.action == 'config' and a.engine == 'strata' else None
+    log = Path(str(a.config) + '.log') if a.action == 'config' else None
     outputs = [target, manifest] + ([log] if log else [])
     for left, right in combinations(outputs, 2):
         if aliases(left, right) or left.resolve() in right.resolve().parents or right.resolve() in left.resolve().parents:
@@ -131,6 +132,23 @@ def main(argv=None):
         p.error('--max-context must be positive')
     if not a.force and (target.exists() or manifest.exists()):
         p.error('output already exists; use --force to permit overwriting')
+    if a.engine == 'maya':
+        # Mirror pinned iq_pack.Model discovery without importing/parsing weights.
+        # GLM load_pack opens these basenames in pack/.., not beside --gguf.
+        match = re.search(r'-(\d{5})-of-(\d{5})\.gguf$', a.gguf.name)
+        paths = [a.gguf]
+        if match:
+            total = int(match.group(2))
+            paths = [a.gguf.with_name(a.gguf.name[:match.start()] +
+                     '-%05d-of-%05d.gguf' % (i, total)) for i in range(1, total + 1)]
+        for shard in paths:
+            visible = a.pack.parent / shard.name
+            if not shard.is_file() or not visible.is_file() or not aliases(shard, visible):
+                p.error(f'Maya requires every model shard beside the pack: {visible} '
+                        f'must be a file or symlink to the intended input {shard}. '
+                        'Finish downloading all shards; use --pack <model-directory>/pack '
+                        'or manually add matching shard symlinks in the pack parent. '
+                        'No files were moved or links created.')
     if a.action == 'pack':
         if not a.gguf.is_file():
             p.error('--gguf must be a local file; all shards must be beside it')
@@ -175,7 +193,8 @@ def main(argv=None):
         print(f'HTTP: server-{a.engine} --config {a.config}')
         print('Native resident protocol (not HTTP):')
         print(shlex.join(command))
-        print('Config-only generation does not validate model artifacts or compatibility.')
+        print('Config-only generation does not validate model contents or compatibility.'
+              + (' Maya shard layout was checked.' if a.engine == 'maya' else ''))
     record = {'schema': 1, 'engine_revision': ADAPTERS[a.engine], 'gguf_py_revision': GGML_REV,
               'options': {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()},
               'command': command, 'http_frontend_packaged': True}

@@ -99,13 +99,24 @@ nix run .#prepare-strata -- strata config --gguf /data/model-00001-of-00002.gguf
 For Maya use `nix run .#prepare-maya -- maya pack` (GLM workflow, usually `--compat-bf16`) and
 `nix run .#prepare-maya -- maya config` with the same explicit path arguments. The packaged engine is
 selected automatically; `--exe /absolute/bin/maya` is an optional override.
+For example, keep `/data/models/model-00001-of-00002.gguf` and all its siblings
+in `/data/models`, and use `--pack /data/models/pack` for both Maya commands.
+Alternatively, manually symlink every shard (with its original basename) into
+the existing pack's parent, pointing to the intended downloaded files. The
+wrapper never moves files or creates these links; layout-only symlink repairs
+need no repack. Rerun config with `--force` to safely replace its JSON/manifest;
+input and output-alias protections still apply. Both engines configure a native
+log at `<config>.log`, protected by the same collision checks.
+
 Maya configs use `--glm-pack`; Strata uses `--pack --native`. Strata PLE models
 may require explicit `--ple-gguf /data/shard.gguf` on config generation.
 Compatibility and memory sizing remain the user's responsibility; these are not
 universal GGUF engines. DeepSeek/EXL3 preparation is not implemented.
 
-Pack and config are deliberately separate operations. Config generation needs
-no model files and does not validate them. Pack invokes the pinned upstream
+Pack and config are deliberately separate operations. Strata config generation needs
+no model files. Maya pack and config require every input shard to exist and be
+visible by the same basename in `pack.parent`, resolving to the same input file.
+Neither config workflow validates model contents or compatibility. Pack invokes the pinned upstream
 `tools/iq_pack.py` directly from packaged source, with Nix Python dependencies
 and gguf-py pinned to llama.cpp `3cf03257f219afbe7334045ff7c6a06ac68c627d`.
 No installers or upstream checkout modifications are used. `--base` permits

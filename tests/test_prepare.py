@@ -39,6 +39,7 @@ class Preparation(unittest.TestCase):
                 with self.subTest(engine=engine, kv=kv), tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp)
                     config = root/'run.json'
+                    (root/'model.gguf').touch()
                     with contextlib.redirect_stdout(io.StringIO()):
                         main([engine, 'config', '--pack', str(root/'pack'),
                               '--gguf', str(root/'model.gguf'), '--exe', '/bin/engine',
@@ -53,6 +54,7 @@ class Preparation(unittest.TestCase):
         for engine in ADAPTERS:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp).resolve()
+                (root/'a.gguf').touch()
                 args = [engine, 'config', '--pack', str(root/'pack'), '--gguf', str(root/'a.gguf'), '--exe', '/bin/engine', '--config', str(root/'run.json')]
                 with contextlib.redirect_stdout(io.StringIO()):
                     main(args)
@@ -191,6 +193,7 @@ class Preparation(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 pack = root/'pack'
+                (root/'a.gguf').touch()
                 Path(str(pack) + '.manifest.json').write_text(json.dumps({'options': {'experts_bin': True}}))
                 argv = [engine, 'config', '--pack', str(pack), '--gguf', str(root/'a.gguf'),
                         '--exe', '/bin/engine', '--config', str(root/'run.json'),
@@ -275,3 +278,68 @@ class Preparation(unittest.TestCase):
                     self.assertEqual(victim.read_bytes(), b'mock profile')
                     self.assertEqual(list(root.iterdir()), [victim])
                     victim.unlink()
+
+    def test_maya_layout(self):
+        for action in ('pack', 'config'):
+            for layout in ('missing', 'wrong', 'direct', 'symlink'):
+                with self.subTest(action=action, layout=layout), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    inputs = root/'models'
+                    inputs.mkdir()
+                    first = inputs/'model-00001-of-00002.gguf'
+                    second = inputs/'model-00002-of-00002.gguf'
+                    first.touch()
+                    if layout != 'missing':
+                        second.touch()
+                    parent = inputs
+                    if layout in ('wrong', 'symlink'):
+                        parent = root/'layout'
+                        parent.mkdir()
+                        (parent/first.name).symlink_to(first)
+                        if layout == 'wrong':
+                            (parent/second.name).touch()
+                        else:
+                            (parent/second.name).symlink_to(second)
+                    pack = parent/'pack'
+                    config = root/'run.json'
+                    argv = ['maya', action, '--gguf', str(first), '--pack', str(pack),
+                            '--config', str(config), '--exe', '/bin/engine', '--force']
+                    with patch.dict('os.environ', {'PREPARE_MAYA_SOURCE': '/source'}), patch('subprocess.run') as run, patch('runtime.prepare_model.importlib.util.spec_from_file_location'), patch('runtime.prepare_model.importlib.util.module_from_spec'), contextlib.redirect_stdout(io.StringIO()):
+                        if layout in ('missing', 'wrong'):
+                            with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                                main(argv)
+                            self.assertIn('every model shard beside the pack', errors.getvalue())
+                            run.assert_not_called()
+                            self.assertFalse(pack.exists())
+                            self.assertFalse(config.exists())
+                            self.assertFalse(Path(str(pack) + '.manifest.json').exists())
+                            self.assertFalse(Path(str(config) + '.manifest.json').exists())
+                        else:
+                            main(argv)
+                            if action == 'config':
+                                self.assertEqual(json.loads(config.read_text())['log'], str(config) + '.log')
+
+    def test_maya_log_collisions(self):
+        for kind in ('input', 'config', 'manifest', 'directory', 'pack', 'hardlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                gguf = root/'a.gguf'
+                gguf.write_bytes(b'weights')
+                config = root/'run.json'
+                config.write_bytes(b'original')
+                pack = root/'pack'
+                pack.mkdir()
+                log = root/'run.json.log'
+                if kind == 'directory':
+                    log.mkdir()
+                elif kind == 'hardlink':
+                    log.hardlink_to(gguf)
+                else:
+                    log.symlink_to({'input': gguf, 'config': config,
+                                    'manifest': root/'run.json.manifest.json',
+                                    'pack': pack/'dense.bin'}[kind])
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(['maya', 'config', '--gguf', str(gguf), '--pack', str(pack),
+                          '--config', str(config), '--exe', '/bin/engine', '--force'])
+                self.assertEqual(config.read_bytes(), b'original')
+                self.assertEqual(gguf.read_bytes(), b'weights')
