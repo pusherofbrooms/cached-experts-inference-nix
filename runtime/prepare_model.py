@@ -41,7 +41,7 @@ def main(argv=None):
     p.add_argument('--prefill')
     p.add_argument('--spec', type=int)
     p.add_argument('--mtp', type=absolute)
-    p.add_argument('--kv', choices=['fp16', 'int8'])
+    p.add_argument('--kv', choices=['fp16', 'int8', 'q4_0', 'k8v4'])
     p.add_argument('--adapt-every', type=int)
     p.add_argument('--pcie-frac', type=float)
     p.add_argument('--mmap-experts', action=argparse.BooleanOptionalAction, default=None)

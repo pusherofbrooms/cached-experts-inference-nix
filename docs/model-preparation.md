@@ -27,6 +27,13 @@ Download every shard of one compatible quant, retaining their original names tog
 
 ## Packaged preparation and configuration
 
+Both engines accept `--kv fp16|int8|q4_0|k8v4`. To request a 128K context
+with hybrid quantized KV and desktop headroom, add
+`--max-context 131072 --kv k8v4 --vram-reserve-mib 2048` to the config command
+(and `--force` when replacing a config). These are explicit choices, not new
+defaults or a guarantee that the context fits your GPU. Re-generation replaces
+manual config edits; include all desired settings in the command.
+
 Use writable directories outside the Nix store. The wrappers supply pinned upstream
 sources, gguf-py and Python dependencies; no checkout, pip or manual environment is needed.
 

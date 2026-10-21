@@ -33,6 +33,22 @@ class Preparation(unittest.TestCase):
                           '--config', '/config.json'])
             self.assertIn('config requires --config and --exe', errors.getvalue())
 
+    def test_quantized_kv_long_context(self):
+        for engine in ADAPTERS:
+            for kv in ('q4_0', 'k8v4'):
+                with self.subTest(engine=engine, kv=kv), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    config = root/'run.json'
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        main([engine, 'config', '--pack', str(root/'pack'),
+                              '--gguf', str(root/'model.gguf'), '--exe', '/bin/engine',
+                              '--config', str(config), '--kv', kv,
+                              '--max-context', '131072', '--vram-reserve-mib', '2048'])
+                    args = json.loads(config.read_text())['args']
+                    for flag, value in (('--kv', kv), ('--max-context', '131072'),
+                                        ('--vram-reserve-mib', '2048')):
+                        self.assertEqual(args[args.index(flag) + 1], value)
+
     def test_configs(self):
         for engine in ADAPTERS:
             with tempfile.TemporaryDirectory() as tmp:
