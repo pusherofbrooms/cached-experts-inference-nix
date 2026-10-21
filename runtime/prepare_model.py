@@ -19,7 +19,10 @@ def absolute(value):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('engine', choices=ADAPTERS)
+    packaged_engine = os.environ.get('PREPARE_ENGINE')
+    if packaged_engine and packaged_engine not in ADAPTERS:
+        p.error(f'unsupported packaged engine: {packaged_engine}')
+    p.add_argument('engine', choices=([packaged_engine] if packaged_engine else ADAPTERS))
     p.add_argument('action', choices=['pack', 'config'])
     p.add_argument('--pack', required=True, type=absolute)
     p.add_argument('--gguf', required=True, type=absolute)

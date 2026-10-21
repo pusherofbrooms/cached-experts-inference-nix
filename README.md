@@ -35,14 +35,14 @@ Downloads remain separate: `nix run .#download-model -- REPO DEST --revision COM
 No wrapper selects or downloads a model. Keep every GGUF shard together.
 
 ```sh
-nix run .#prepare-model -- strata pack --gguf /data/model-00001-of-00002.gguf \
+nix run .#prepare-strata -- strata pack --gguf /data/model-00001-of-00002.gguf \
   --pack /data/strata-pack --experts-bin
-nix run .#prepare-model -- strata config --gguf /data/model-00001-of-00002.gguf \
+nix run .#prepare-strata -- strata config --gguf /data/model-00001-of-00002.gguf \
   --pack /data/strata-pack --config /data/strata.json
 ```
 
-For Maya use `maya pack` (GLM workflow, usually `--compat-bf16`) and
-`maya config` with the same explicit path arguments. The packaged engine is
+For Maya use `nix run .#prepare-maya -- maya pack` (GLM workflow, usually `--compat-bf16`) and
+`nix run .#prepare-maya -- maya config` with the same explicit path arguments. The packaged engine is
 selected automatically; `--exe /absolute/bin/maya` is an optional override.
 Maya configs use `--glm-pack`; Strata uses `--pack --native`. Strata PLE models
 may require explicit `--ple-gguf /data/shard.gguf` on config generation.
@@ -64,8 +64,22 @@ absolute paths, options and commands, not model hashes or download provenance.
 
 Matching HTTP frontends are Nix packaged: `nix run .#server-strata -- --config /data/run.json`
 (or `server-maya`). They bind loopback by default; no installers run.
-`prepare-model` defaults to the ROCm executable; `prepare-model-cuda` selects CUDA
-without introducing CUDA dependencies into ROCm preparation. `--exe` overrides either.
+Preparation packages are independent: `prepare-<engine>` and
+`prepare-<engine>-rocm` include only that engine's ROCm executable;
+`prepare-<engine>-cuda` includes only its CUDA executable. The positional engine
+argument is retained and must match the package. `--exe` overrides the config
+path, but does not remove the packaged GPU dependency.
+
+For GPU-free packing/config generation use `prepare-strata-tools` or
+`prepare-maya-tools`. These include only the corresponding source and Python
+packing dependencies; config requires an explicit `--exe /absolute/bin/engine`.
+They do not build a native engine or GPU toolkit.
+
+Compatibility aliases `prepare-model` and `prepare-model-cuda` now mean **Strata
+only** (ROCm and CUDA respectively). Old Maya commands must switch to
+`prepare-maya` / `prepare-maya-cuda`; a mismatched engine is rejected rather
+than silently generating a config for another engine.
+
 Pack preparation validates sibling completeness with upstream Model and records
 Strata PLE discovery in the sidecar; config generation can read that sidecar without
 opening model weights. Symlink filenames are retained for sibling discovery.

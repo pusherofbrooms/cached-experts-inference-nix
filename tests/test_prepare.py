@@ -9,6 +9,23 @@ from runtime.prepare_model import main, ADAPTERS
 
 
 class Preparation(unittest.TestCase):
+    def test_packaged_engine_rejects_other_engine(self):
+        for engine, other in [('strata', 'maya'), ('maya', 'strata')]:
+            with patch.dict('os.environ', {'PREPARE_ENGINE': engine}):
+                with contextlib.redirect_stderr(io.StringIO()) as errors:
+                    with self.assertRaises(SystemExit) as exit:
+                        main([other, 'config', '--pack', '/pack', '--gguf', '/model'])
+                self.assertEqual(exit.exception.code, 2)
+                self.assertIn('invalid choice', errors.getvalue())
+
+    def test_tools_config_requires_executable(self):
+        with patch.dict('os.environ', {}, clear=True):
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit):
+                    main(['maya', 'config', '--pack', '/pack', '--gguf', '/model',
+                          '--config', '/config.json'])
+            self.assertIn('config requires --config and --exe', errors.getvalue())
+
     def test_configs(self):
         for engine in ADAPTERS:
             with tempfile.TemporaryDirectory() as tmp:

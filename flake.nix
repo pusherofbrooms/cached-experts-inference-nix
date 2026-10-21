@@ -35,6 +35,20 @@
         "${name}-cuda" = configure "cuda" engine.cudaPackage;
         "${name}-tools" = engine.toolsPackage;
       }) registry;
+      preparation = pkgs.lib.concatMapAttrs (name: _: let
+        prepare = executable: import ./runtime/package.nix {
+          inherit pkgs name executable;
+          src = inputs.${name};
+        };
+        rocm = prepare "${engines.${name + "-rocm"}}/bin/${name}";
+      in {
+        "prepare-${name}" = rocm;
+        "prepare-${name}-rocm" = rocm;
+        "prepare-${name}-cuda" = prepare "${engines.${name + "-cuda"}}/bin/${name}";
+        "prepare-${name}-tools" = prepare null;
+      }) registry;
+      servers = pkgs.lib.mapAttrs' (name: _: pkgs.lib.nameValuePair "server-${name}"
+        (import ./runtime/server.nix { inherit pkgs name; src = inputs.${name}; })) registry;
       download = pkgs.writeShellApplication {
         name = "download-model";
         runtimeInputs = [ pkgs.python3Packages.huggingface-hub ];
@@ -51,14 +65,18 @@
         '';
       };
     in {
-      packages.${system} = engines // {
-        server-strata = import ./runtime/server.nix { inherit pkgs; src = inputs.strata; name = "strata"; };
-        server-maya = import ./runtime/server.nix { inherit pkgs; src = inputs.maya; name = "maya"; };
+      packages.${system} = engines // preparation // servers // {
         update-engine = pkgs.writeShellApplication {
-        name = "update-engine";
-        runtimeInputs = [ pkgs.python3 pkgs.git pkgs.nix ];
-        text = ''exec python3 ${./scripts/update_engine.py} "$@"'';
-      }; download-model = download; prepare-model = import ./runtime/package.nix { inherit pkgs; inherit (inputs) strata maya; executables = { strata = "${engines.strata}/bin/strata"; maya = "${engines.maya}/bin/maya"; }; }; prepare-model-cuda = import ./runtime/package.nix { inherit pkgs; inherit (inputs) strata maya; executables = { strata = "${engines.strata-cuda}/bin/strata"; maya = "${engines.maya-cuda}/bin/maya"; }; }; default = engines.strata; };
+          name = "update-engine";
+          runtimeInputs = [ pkgs.python3 pkgs.git pkgs.nix ];
+          text = ''exec python3 ${./scripts/update_engine.py} "$@"'';
+        };
+        download-model = download;
+        # Compatibility aliases are intentionally Strata-only.
+        prepare-model = preparation.prepare-strata;
+        prepare-model-cuda = preparation.prepare-strata-cuda;
+        default = engines.strata;
+      };
       apps.${system} = pkgs.lib.mapAttrs (_: package: {
         type = "app";
         program = pkgs.lib.getExe package;
