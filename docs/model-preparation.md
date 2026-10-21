@@ -56,7 +56,7 @@ Maya supports the same manifest handling, but its normal native GLM recipe does
 not request experts.bin. That option duplicates expert data on disk.
 
 Runtime tuning is explicit, not a backend guess: reserve, cache, prefill and KV
-options are configurable, and omitted options retain upstream defaults. The Strata
+options are configurable, and omitted options retain upstream defaults except for the Strata startup requirements below. The Strata
 ROCm example disables adaptation/PCIe budgeting as in the conservative guide;
 it is not a guarantee of support for other cards or models. CUDA users should use
 `prepare-strata-cuda` or `prepare-maya-cuda` respectively (or provide `--exe`). Config generation does not run inference
@@ -71,3 +71,44 @@ restoring original weights. Keep original GGUF shards at their recorded paths.
 - There is no native runtime `--backend rocm` switch: use the HIP-built executable. Both derivations currently target `gfx1100`; other GPUs need appropriate build overrides. Wave64/CDNA is not automatically supported by these defaults. Use a working Linux ROCm driver, accessible GPU devices and sufficient RAM/VRAM; `ROCR_VISIBLE_DEVICES`/`HIP_VISIBLE_DEVICES` can select a card.
 - mmap avoids a full pinned expert arena, not the need for fast storage and page-cache RAM. Leave room for both GGUFs and pack outputs. Begin with a short context; allocation success does not prove full-context inference or quality.
 - These ROCm derivations are experimental; the Maya derivation explicitly records that ROCm inference is untested. The commands here were source-checked, not GPU/model execution-tested. Build with `nix build .#strata-rocm` or `nix build .#maya-rocm`, and point the binary variables at the resulting executables. For packaged conversion/config wrappers, see the root README.
+
+### Repair an existing Strata configuration
+
+Strata config generation now supplies `--spec 2 --prefill auto` unless overridden.
+These are startup requirements, not additional performance tuning: the pinned
+`generate.cpp` native IQ check requires spec >= 2, and resident serving requires
+positive prefill. `--prefill` accepts `auto` or a positive integer for Strata;
+Maya keeps its previous integer-only behavior and receives neither default.
+`--spec 3` preserves an older spec-3 configuration.
+
+MTP is **optional**: the pinned resident path explicitly falls back to lookup or
+plain decoding without it. To retain an existing drafter, pass
+`--mtp /home/jjorgens/.local/share/strata/models/mtp/rt`. This must be an existing
+directory; preparation neither creates nor validates its model contents.
+Strata configs also record `log` as `<config>.log`, where the server appends engine
+stderr and can report startup errors. Output/log aliases of inputs, MTP contents,
+and each other are rejected even with `--force`. Do not change these paths into
+aliases after generation.
+
+Rerun **config only** with `--force` to replace the existing JSON and manifest;
+no repack is required. With `GGUF`, `PACK`, and `CONFIG` set to the same absolute
+paths used previously, the CUDA command retaining the old spec/MTP/prefill is:
+
+```sh
+nix run .#prepare-strata-cuda -- strata config \
+  --gguf "$GGUF" --pack "$PACK" --config "$CONFIG" --force \
+  --spec 3 --prefill auto --mtp /home/jjorgens/.local/share/strata/models/mtp/rt
+```
+
+Retain any other explicitly chosen flags from the previous config command.
+For ROCm use `.#prepare-strata` instead. This command generates configuration;
+it does not launch the GPU engine.
+
+Strata config also defaults to `--expert-cache auto` and `--expert-profile` pointing
+at the packaged Strata source's `data/expert-profile.bin`. Override with
+`--expert-profile /absolute/path/to/expert-profile.bin` (an existing file) and/or
+`--expert-cache COUNT`. Direct Python callers without `PREPARE_STRATA_SOURCE`
+must supply the profile explicitly; an unavailable profile fails before writes.
+Profile aliases are protected against config, manifest and log collisions even
+with `--force`. These defaults do not affect Maya or packing. The default
+`--max-context` remains 4096.

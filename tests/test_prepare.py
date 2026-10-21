@@ -9,6 +9,13 @@ from runtime.prepare_model import main, ADAPTERS
 
 
 class Preparation(unittest.TestCase):
+    def setUp(self):
+        source = self.enterContext(tempfile.TemporaryDirectory())
+        self.profile = Path(source)/'data/expert-profile.bin'
+        self.profile.parent.mkdir(parents=True)
+        self.profile.write_bytes(b'mock profile')
+        self.enterContext(patch.dict('os.environ', {'PREPARE_STRATA_SOURCE': source}))
+
     def test_packaged_engine_rejects_other_engine(self):
         for engine, other in [('strata', 'maya'), ('maya', 'strata')]:
             with patch.dict('os.environ', {'PREPARE_ENGINE': engine}):
@@ -188,3 +195,67 @@ class Preparation(unittest.TestCase):
                                     ('--pcie-frac', 'nan'), ('--expert-cache', 'bad')):
                     with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                         main(argv + ['--force', flag, value])
+
+    def test_strata_startup_defaults_and_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mtp = root/'mtp'
+            mtp.mkdir()
+            argv = ['strata', 'config', '--pack', str(root/'pack'), '--gguf', str(root/'a.gguf'),
+                    '--exe', '/bin/engine', '--config', str(root/'run.json')]
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(argv)
+                cfg = json.loads((root/'run.json').read_text())
+                self.assertEqual(cfg['args'][-4:], ['--prefill', 'auto', '--spec', '2'])
+                self.assertEqual(cfg['args'][cfg['args'].index('--expert-cache') + 1], 'auto')
+                self.assertEqual(cfg['args'][cfg['args'].index('--expert-profile') + 1], str(self.profile))
+                self.assertEqual(cfg['args'][cfg['args'].index('--max-context') + 1], '4096')
+                self.assertEqual(cfg['log'], str(root/'run.json.log'))
+                main(argv + ['--force', '--spec', '3', '--mtp', str(mtp)])
+                self.assertIn(str(mtp), json.loads((root/'run.json').read_text())['args'])
+            for extra in (['--spec', '1'], ['--mtp', str(root/'missing')],
+                          ['--mtp', str(mtp), '--config', str(mtp/'run.json')]):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(argv + ['--force'] + extra)
+            for victim in (root/'a.gguf', root/'run.json', root/'run.json.manifest.json'):
+                log = root/'run.json.log'
+                log.symlink_to(victim)
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(argv + ['--force'])
+                log.unlink()
+
+    def test_profile_resolution_and_collisions(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {}, clear=True):
+            root = Path(tmp)
+            output = root/'run.json'
+            argv = ['strata', 'config', '--pack', str(root/'pack'), '--gguf', str(root/'a.gguf'),
+                    '--exe', '/bin/engine', '--config', str(output)]
+            for extra in ([], ['--expert-profile', str(root/'missing')], ['--expert-profile', str(root)]):
+                with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                    main(argv + extra)
+                self.assertIn('requires an existing --expert-profile', errors.getvalue())
+                self.assertFalse(output.exists())
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(argv + ['--expert-profile', str(self.profile), '--expert-cache', '0'])
+            args = json.loads(output.read_text())['args']
+            self.assertEqual(args[args.index('--expert-profile') + 1], str(self.profile))
+            self.assertEqual(args[args.index('--expert-cache') + 1], '0')
+            output.unlink()
+            Path(str(output) + '.manifest.json').unlink()
+            for suffix in ('', '.manifest.json', '.log'):
+                for alias in ('direct', 'symlink', 'hardlink'):
+                    victim = Path(str(output) + suffix)
+                    profile = self.profile
+                    if alias == 'direct':
+                        victim.write_bytes(b'mock profile')
+                        profile = victim
+                    elif alias == 'symlink':
+                        victim.symlink_to(profile)
+                    else:
+                        victim.hardlink_to(profile)
+                    with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                        main(argv + ['--force', '--expert-profile', str(profile)])
+                    self.assertIn('collides with an input', errors.getvalue())
+                    self.assertEqual(victim.read_bytes(), b'mock profile')
+                    self.assertEqual(list(root.iterdir()), [victim])
+                    victim.unlink()

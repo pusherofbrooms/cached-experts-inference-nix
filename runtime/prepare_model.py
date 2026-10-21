@@ -2,6 +2,7 @@
 import argparse
 import importlib.util
 import json
+from itertools import combinations
 import os
 from pathlib import Path
 import shlex
@@ -36,13 +37,39 @@ def main(argv=None):
     p.add_argument('--max-context', type=int, default=4096)
     p.add_argument('--vram-reserve-mib', type=int)
     p.add_argument('--expert-cache', help='auto or a nonnegative expert count')
-    p.add_argument('--prefill', type=int)
+    p.add_argument('--expert-profile', type=absolute, help='Strata profile file (default: packaged profile)')
+    p.add_argument('--prefill')
+    p.add_argument('--spec', type=int)
+    p.add_argument('--mtp', type=absolute)
     p.add_argument('--kv', choices=['fp16', 'int8'])
     p.add_argument('--adapt-every', type=int)
     p.add_argument('--pcie-frac', type=float)
     p.add_argument('--mmap-experts', action=argparse.BooleanOptionalAction, default=None)
     a = p.parse_args(argv)
-    for key in ('vram_reserve_mib', 'prefill', 'adapt_every'):
+    if a.engine == 'maya' and (a.spec is not None or a.mtp is not None):
+        p.error('--spec and --mtp are only configured for Strata')
+    if a.expert_profile is not None and (a.engine != 'strata' or a.action != 'config'):
+        p.error('--expert-profile is only supported for Strata config')
+    if a.spec is not None and a.spec < 2:
+        p.error('--spec must be at least 2')
+    if a.mtp is not None and not a.mtp.is_dir():
+        p.error('--mtp must be an existing directory')
+    if a.prefill is not None and not (a.engine == 'strata' and a.prefill == 'auto'):
+        try:
+            a.prefill = int(a.prefill)
+        except ValueError:
+            p.error('--prefill must be a positive integer (or auto for Strata)')
+        if a.prefill < 1:
+            p.error('--prefill is out of range')
+    if a.engine == 'strata' and a.action == 'config':
+        a.expert_cache = a.expert_cache if a.expert_cache is not None else 'auto'
+        if a.expert_profile is None and os.environ.get('PREPARE_STRATA_SOURCE'):
+            a.expert_profile = absolute(os.environ['PREPARE_STRATA_SOURCE']) / 'data/expert-profile.bin'
+        if a.expert_profile is None or not a.expert_profile.is_file():
+            p.error('Strata config requires an existing --expert-profile file or packaged PREPARE_STRATA_SOURCE profile')
+        a.spec = a.spec if a.spec is not None else 2
+        a.prefill = a.prefill if a.prefill is not None else 'auto'
+    for key in ('vram_reserve_mib', 'adapt_every'):
         value = getattr(a, key)
         if value is not None and value < (1 if key == 'prefill' else 0):
             p.error('--' + key.replace('_', '-') + ' is out of range')
@@ -68,8 +95,10 @@ def main(argv=None):
     # Enumerate names without loading weights, and before resolving symlinks:
     # shard aliases can point outside the directory containing the supplied GGUF.
     siblings = list(a.gguf.parent.glob('*.gguf'))
-    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base] + siblings
+    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile] + siblings
     directories = [a.base] if a.base and a.base.is_dir() else []
+    if a.mtp:
+        directories.append(a.mtp)
     if a.action == 'config':
         protected += [a.pack, Path(str(a.pack) + '.manifest.json')]
         directories.append(a.pack)
@@ -83,12 +112,14 @@ def main(argv=None):
         return left.resolve() == right.resolve() or (
             left.exists() and right.exists() and left.samefile(right))
 
-    if aliases(target, manifest) or any(
-            left in right.parents
-            for left, right in ((target.resolve(), manifest.resolve()),
-                                (manifest.resolve(), target.resolve()))):
-        p.error('outputs collide with each other')
-    for output in (target, manifest):
+    log = Path(str(a.config) + '.log') if a.action == 'config' and a.engine == 'strata' else None
+    outputs = [target, manifest] + ([log] if log else [])
+    for left, right in combinations(outputs, 2):
+        if aliases(left, right) or left.resolve() in right.resolve().parents or right.resolve() in left.resolve().parents:
+            p.error('outputs collide with each other')
+    if log and log.is_dir():
+        p.error('log path must name a file')
+    for output in outputs:
         if any(aliases(output, path) for path in protected if path) or any(out == src or out in src.parents
                for out in locations(output)
                for path in protected if path for src in locations(path)) or any(
@@ -128,7 +159,7 @@ def main(argv=None):
         mmap = a.mmap_experts if a.mmap_experts is not None else options.get('experts_bin', False)
         if mmap:
             args.append('--mmap-experts')
-        for key in ('vram_reserve_mib', 'expert_cache', 'prefill', 'kv', 'adapt_every', 'pcie_frac'):
+        for key in ('vram_reserve_mib', 'expert_cache', 'expert_profile', 'prefill', 'kv', 'adapt_every', 'pcie_frac', 'spec', 'mtp'):
             value = getattr(a, key)
             if value is not None:
                 args += ['--' + key.replace('_', '-'), str(value)]
@@ -136,6 +167,8 @@ def main(argv=None):
             args += ['--ple-gguf', str(a.ple_gguf)]
         config = {'exe': str(a.exe), 'args': args, 'cwd': str(a.pack.parent),
                   'tokenizer': str(a.pack / 'tokenizer'), 'model_name': a.pack.name}
+        if log:
+            config['log'] = str(log)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(config, indent=2) + '\n')
         command = [str(a.exe), '--serve'] + args
