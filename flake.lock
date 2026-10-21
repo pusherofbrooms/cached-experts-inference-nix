@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "maya": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792567918,
+        "narHash": "sha256-JPjRHVZ5+GrHaZVs9caKHRhAbnSRleo9rrdDUYwEpjQ=",
+        "owner": "mw00",
+        "repo": "project-maya",
+        "rev": "35bb2b22a2e2c65b91e24a41d4b026bfa4e89557",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mw00",
+        "repo": "project-maya",
+        "rev": "35bb2b22a2e2c65b91e24a41d4b026bfa4e89557",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1792502884,
+        "narHash": "sha256-IoNisKcGbUjdd45qCqywGMCYmZ5EnkxezvLII0FWwNA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "02c087f3fe673c9e317f206a627cb6b910336dbe",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "maya": "maya",
+        "nixpkgs": "nixpkgs",
+        "strata": "strata"
+      }
+    },
+    "strata": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792573659,
+        "narHash": "sha256-rZqp6GjcaDzwL9FjBxCrh3DNfF8j9QT7S0kN7BVD+vg=",
+        "owner": "Niko1221",
+        "repo": "Strata",
+        "rev": "011c9e600a93bbc9fd451c563501b5831c32bbca",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Niko1221",
+        "repo": "Strata",
+        "rev": "011c9e600a93bbc9fd451c563501b5831c32bbca",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

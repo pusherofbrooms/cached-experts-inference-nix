@@ -1,0 +1,16 @@
+{
+  "engines": {
+    "strata": {
+      "repo": "Niko1221/Strata",
+      "version": "0.1.47"
+    },
+    "maya": {
+      "repo": "mw00/project-maya",
+      "version": "0.1.27"
+    }
+  },
+  "ggml": {
+    "rev": "3cf03257f219afbe7334045ff7c6a06ac68c627d",
+    "hash": "sha256-SRGoXa+4ACBCB3eaG9XFYhMN1i0FyPEy9Rrer+dFGYI="
+  }
+}
