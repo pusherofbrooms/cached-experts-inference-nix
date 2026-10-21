@@ -1,0 +1,20 @@
+# Nix build output links (keep flake.lock tracked).
+/result
+/result-*
+
+# Local direnv state; .envrc may be shared and is not ignored.
+/.direnv/
+
+# Python bytecode, test caches, and local virtual environments.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/.venv/
+/venv/
+.coverage
+/htmlcov/
+
+# Local credentials/environment overrides.
+.env
+.env.local
+.env.*.local
