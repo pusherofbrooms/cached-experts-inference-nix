@@ -65,6 +65,46 @@ let
     };
   };
 
+  visionPackage = pkgs.stdenv.mkDerivation {
+    pname = "maya-vision-cpu";
+    version = metadata.engines.maya.version;
+    inherit src;
+    nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.python3 ];
+    # Patch only a writable copy of the pinned llama input (AMD_MAYA.md).
+    preConfigure = ''
+      cp -R ${ggmlSource} llama-source
+      chmod -R u+w llama-source
+      python tools/vision/glm5next_patch.py llama-source
+      cmakeFlagsArray+=("-DLLAMA_DIR=$PWD/llama-source")
+    '';
+    cmakeDir = "../tools/vision";
+    cmakeFlags = [
+      "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
+      "-DSTRATA_PORTABLE=ON"
+      "-DMAYA_VISION_CUDA=OFF"
+      "-DGGML_HIP=OFF"
+      "-DGGML_SYCL=OFF"
+      "-DGGML_METAL=OFF"
+    ];
+    buildPhase = ''
+      runHook preBuild
+      cmake --build . --parallel "$NIX_BUILD_CORES" --target maya-vision
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      install -Dm755 bin/maya-vision "$out/bin/maya-vision"
+      runHook postInstall
+    '';
+    dontInstallCmake = true;
+    meta = {
+      description = "Maya portable CPU image encoder (no models)";
+      license = pkgs.lib.licenses.mit;
+      platforms = [ "x86_64-linux" ];
+      mainProgram = "maya-vision";
+    };
+  };
+
   # Build-verified for sm_86; GPU/model execution remains untested.
   # Requires allowUnfree = true. Build explicitly via .cudaPackage; tools stay
   # independent of CUDA. Override cmakeFlags for GPUs other than sm_86 (>= 75).
@@ -163,5 +203,5 @@ let
 in
 {
   package = rocmPackage;
-  inherit rocmPackage cudaPackage toolsPackage;
+  inherit rocmPackage cudaPackage toolsPackage visionPackage;
 }

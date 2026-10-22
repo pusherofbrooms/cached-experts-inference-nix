@@ -12,7 +12,7 @@ in pkgs.writeShellApplication {
   runtimeInputs = [ python ];
   text = ''
     export PREPARE_ENGINE=${name}
-    ${if visionExecutable == null then "unset PREPARE_STRATA_VISION_EXE" else "export PREPARE_STRATA_VISION_EXE=${visionExecutable}"}
+    ${if visionExecutable == null then "unset ${prefix}_VISION_EXE" else "export ${prefix}_VISION_EXE=${visionExecutable}"}
     ${if executable == null then "unset ${prefix}_EXE" else "export ${prefix}_EXE=${executable}"}
     export ${prefix}_REV=${src.rev}
     export ${prefix}_SOURCE=${src}

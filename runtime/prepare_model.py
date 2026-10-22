@@ -35,7 +35,8 @@ def main(argv=None):
     p.add_argument('--config', type=absolute)
     p.add_argument('--exe', type=absolute)
     p.add_argument('--ple-gguf', type=absolute)
-    p.add_argument('--mmproj', type=absolute, help='matching local Strata projector (config only)')
+    p.add_argument('--mmproj', type=absolute, help='matching local projector (config only)')
+    p.add_argument('--vision-model', '--vision-vocab', type=absolute, help='Maya GLM vocabulary GGUF (required for Maya vision)')
     p.add_argument('--vision-exe', type=absolute, help='CPU encoder override (default: packaged encoder)')
     p.add_argument('--vision-device', choices=['cpu'], help='CPU only in this package')
     p.add_argument('--max-context', type=int, default=4096)
@@ -51,13 +52,17 @@ def main(argv=None):
     p.add_argument('--pcie-frac', type=float)
     p.add_argument('--mmap-experts', action=argparse.BooleanOptionalAction, default=None)
     a = p.parse_args(argv)
-    if any((a.mmproj, a.vision_exe, a.vision_device)):
-        if a.engine != 'strata' or a.action != 'config':
-            p.error('vision options are only supported for Strata config')
+    if any((a.mmproj, a.vision_exe, a.vision_device, a.vision_model)):
+        if a.action != 'config':
+            p.error('vision options are only supported for config')
+        if a.engine == 'maya' and (not a.vision_model or not a.vision_model.is_file()):
+            p.error('Maya vision requires an existing --vision-model GLM vocabulary GGUF')
+        if a.engine == 'strata' and a.vision_model:
+            p.error('--vision-model is only supported for Maya config')
         if not a.mmproj or not a.mmproj.is_file():
             p.error('vision requires an existing --mmproj file')
-        a.vision_exe = a.vision_exe or (absolute(os.environ['PREPARE_STRATA_VISION_EXE'])
-                                      if os.environ.get('PREPARE_STRATA_VISION_EXE') else None)
+        encoder = os.environ.get(f'PREPARE_{a.engine.upper()}_VISION_EXE')
+        a.vision_exe = a.vision_exe or (absolute(encoder) if encoder else None)
         if not a.vision_exe or not a.vision_exe.is_file() or not os.access(a.vision_exe, os.X_OK):
             p.error('vision requires an executable --vision-exe or packaged CPU encoder')
         a.vision_device = 'cpu'
@@ -115,7 +120,7 @@ def main(argv=None):
     # Enumerate names without loading weights, and before resolving symlinks:
     # shard aliases can point outside the directory containing the supplied GGUF.
     siblings = list(a.gguf.parent.glob('*.gguf'))
-    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe, a.dflash] + siblings
+    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe, a.vision_model, a.dflash] + siblings
     directories = [a.base] if a.base and a.base.is_dir() else []
     if a.mtp:
         directories.append(a.mtp)
@@ -205,9 +210,12 @@ def main(argv=None):
         config = {'exe': str(a.exe), 'args': args, 'cwd': str(a.pack.parent),
                   'tokenizer': str(a.pack / 'tokenizer'), 'model_name': a.pack.name}
         if a.mmproj:
-            args.append('--vision')
+            if a.engine == 'strata':
+                args.append('--vision')
             config['vision'] = {'exe': str(a.vision_exe), 'mmproj': str(a.mmproj),
-                                'model': str(a.gguf), 'gpu': False, 'max_tokens': 300}
+                                'model': str(a.vision_model or a.gguf), 'gpu': False}
+            if a.engine == 'strata':
+                config['vision']['max_tokens'] = 300
         if log:
             config['log'] = str(log)
         target.parent.mkdir(parents=True, exist_ok=True)

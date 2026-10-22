@@ -207,7 +207,7 @@ curl --fail-with-body http://127.0.0.1:8091/v1/chat/completions \
 
 ### Config schema and limits
 
-`--mmproj` enables vision only for `strata config`; `--vision-exe` overrides the
+For Strata, `--mmproj` enables vision only for `strata config`; `--vision-exe` overrides the
 packaged **CPU** executable, and `--vision-device cpu` is optional. Overrides
 must be executable local files. No vision flags means unchanged text-only config.
 The generated native `args` include `--vision`, and the frontend gets:
@@ -248,3 +248,54 @@ selection or package a GPU encoder yet. CPU vision is the only supported device,
 even when text inference uses AMD. No ROCm vision build or real-image/model
 inference has been validated. No models are downloaded by builds or preparation;
 Strata serving additionally sets `STRATA_NO_ACQUIRE=1`.
+
+## Maya GLM CPU vision (separate from Strata)
+
+`maya-vision-cpu` follows pinned `docs/AMD_MAYA.md`: it runs
+`glm5next_patch.py` on a writable copy of pinned llama.cpp, then builds only
+`maya-vision` with CUDA disabled and a portable AVX2 CPU baseline. Neither
+engine's vision package depends on the other. Preparation wrappers supply their
+own `PREPARE_MAYA_VISION_EXE` / `PREPARE_STRATA_VISION_EXE`.
+
+Use existing matching GLM-5.3-Flash files; these commands download nothing.
+Set `GGUF` to your actual first shard and `PACK` to the existing pack beside
+those shards. Keep your text config; select a new config filename:
+
+```sh
+export GGUF="$HOME/.local/share/project-maya/models/YOUR-FIRST-SHARD.gguf"
+export PACK="$(dirname "$GGUF")/pack"
+export VISION="$HOME/.local/share/project-maya/vision/glm-5.3-flash"
+export CONFIG="$HOME/.config/project-maya/glm-vision-cpu.json"
+
+nix build .#maya-vision-cpu --out-link result-maya-vision-cpu
+nix run .#prepare-maya-rocm -- maya config \
+  --gguf "$GGUF" --pack "$PACK" --config "$CONFIG" \
+  --mmproj "$VISION/mmproj-GLM-5.3-Flash-F16.gguf" \
+  --vision-model "$VISION/GLM-5.3-Flash-vocab.gguf" --vision-device cpu \
+  --max-context 8192 --kv int8 --vram-reserve-mib 3072 --mmap-experts
+
+# Only when ready, on an unused port (not run during implementation):
+nix run .#server-maya -- --config "$CONFIG" --port 8099
+curl --fail http://127.0.0.1:8099/health
+```
+
+Retain your actual context, KV, reserve, mmap and other tuning options instead
+of blindly adopting the example. Generation does not merge an old config or
+preserve manually added environment settings. For CUDA text inference substitute
+`prepare-maya-cuda`; for GPU-free preparation use `prepare-maya-tools` with
+`--exe /absolute/path/to/maya`. Do not use `--force` on your existing config.
+
+Maya requires both `--mmproj` and `--vision-model` (alias `--vision-vocab`);
+the latter is the **GLM vocabulary GGUF**, not the text model shard. The generated
+`vision` object contains `exe`, `mmproj`, `model`, and `gpu: false`. Unlike
+Strata, no native `--vision` flag or Qwen token cap is added: pinned Maya's
+frontend enables its encoder from the config and uses GLM image markers/GENI.
+Strata's existing `--vision` behavior and model-shard vocabulary remain unchanged.
+All vision options are config-only; only CPU is supported. Files must exist and
+the encoder must be executable. Config, manifest and log outputs cannot alias
+any vision input (including symlinks/hardlinks), even with `--force`.
+Content/model compatibility is not inferred from filenames.
+
+Check `images: true`, then send a real image using the request example above
+with port 8099 and your model name. CPU build/linkage and frontend imports are
+validated; real GLM image inference and GPU serving remain untested here.

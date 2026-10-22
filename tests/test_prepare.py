@@ -99,8 +99,63 @@ class Preparation(unittest.TestCase):
                             self.assertEqual(source.read_text(), 'input')
                             output.unlink()
 
+    def test_maya_vision_config_and_input_protection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model, projector, encoder = (root / n for n in ('model.gguf', 'projector', 'encoder'))
+            for path in (model, projector, encoder):
+                path.write_text('input')
+            encoder.chmod(0o755)
+            vocab = root / 'vocab.gguf'
+            vocab.write_text('input')
+            config = root / 'vision.json'
+            args = ['maya', 'config', '--pack', str(root / 'pack'), '--gguf', str(model),
+                    '--exe', '/bin/engine', '--config', str(config), '--mmproj', str(projector), '--vision-vocab', str(vocab)]
+            with patch.dict('os.environ', {'PREPARE_MAYA_VISION_EXE': str(encoder)}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    main(args)
+                cfg = json.loads(config.read_text())
+                self.assertEqual(cfg['vision'], {'exe': str(encoder), 'mmproj': str(projector),
+                                                'model': str(vocab), 'gpu': False})
+                self.assertEqual(cfg['args'].count('--vision'), 0)
+                for source in (projector, encoder, vocab):
+                    for output in (config, Path(str(config) + '.manifest.json'), Path(str(config) + '.log')):
+                        for hardlink in (False, True):
+                            output.unlink(missing_ok=True)
+                            if hardlink:
+                                output.hardlink_to(source)
+                            else:
+                                output.symlink_to(source)
+                            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                                main(args + ['--force'])
+                            self.assertEqual(source.read_text(), 'input')
+                            output.unlink()
+
+    def test_maya_vision_requires_vocab_and_own_encoder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model, projector, vocab, encoder = (root / n for n in
+                                                ('model.gguf', 'mmproj', 'vocab', 'encoder'))
+            for path in (model, projector, vocab, encoder):
+                path.touch()
+            encoder.chmod(0o755)
+            args = ['maya', 'config', '--gguf', str(model), '--pack', str(root / 'pack'),
+                    '--config', str(root / 'config.json'), '--exe', '/bin/engine',
+                    '--mmproj', str(projector)]
+            with patch.dict('os.environ', {'PREPARE_STRATA_VISION_EXE': str(encoder)}, clear=True):
+                for extra in ([], ['--vision-model', str(vocab)],
+                              ['--vision-model', str(root)],
+                              ['--vision-model', str(vocab), '--vision-exe', str(vocab)]):
+                    with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()):
+                        with self.assertRaises(SystemExit):
+                            main(args + extra)
+                self.assertFalse((root / 'config.json').exists())
+
     def test_vision_rejects_invalid_options(self):
         cases = [(['maya', 'config'], ['--mmproj', '/missing']),
+                 (['maya', 'config'], ['--vision-model', '/missing']),
+                 (['maya', 'pack'], ['--vision-model', '/missing']),
+                 (['strata', 'config'], ['--vision-model', '/missing']),
                  (['strata', 'pack'], ['--vision-device', 'cpu']),
                  (['strata', 'config'], ['--vision-exe', '/missing']),
                  (['strata', 'config'], ['--mmproj', '/missing']),
