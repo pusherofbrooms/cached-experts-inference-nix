@@ -108,6 +108,22 @@ need no repack. Rerun config with `--force` to safely replace its JSON/manifest;
 input and output-alias protections still apply. Both engines configure a native
 log at `<config>.log`, protected by the same collision checks.
 
+Maya config optionally accepts `--dflash` pointing to an existing local drafter
+GGUF; it is never enabled by default and is rejected for Strata and pack.
+DFlash2 on AMD is experimental. The GLM-5.3-Flash-DFlash2 drafter is licensed
+CC BY-NC-ND 4.0; review its terms before downloading or using it. Download it
+separately to, for example,
+`~/.local/share/project-maya/drafters/dflash2/GLM-5.3-Flash-DFlash2-Q4_K_M.gguf`.
+The wrapper does not download or modify the drafter or validate compatibility.
+A separate config is advisable; retain your existing VRAM reserve explicitly:
+
+```sh
+nix run .#prepare-maya -- maya config --gguf /data/models/model-00001-of-00002.gguf \
+  --pack /data/models/pack --config /data/maya-dflash.json \
+  --dflash ~/.local/share/project-maya/drafters/dflash2/GLM-5.3-Flash-DFlash2-Q4_K_M.gguf \
+  --vram-reserve-mib 2048
+```
+
 Maya configs use `--glm-pack`; Strata uses `--pack --native`. Strata PLE models
 may require explicit `--ple-gguf /data/shard.gguf` on config generation.
 Compatibility and memory sizing remain the user's responsibility; these are not

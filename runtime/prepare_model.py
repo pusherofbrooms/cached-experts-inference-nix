@@ -45,6 +45,7 @@ def main(argv=None):
     p.add_argument('--prefill')
     p.add_argument('--spec', type=int)
     p.add_argument('--mtp', type=absolute)
+    p.add_argument('--dflash', type=absolute, help='existing local drafter GGUF (Maya config only)')
     p.add_argument('--kv', choices=['fp16', 'int8', 'q4_0', 'k8v4'])
     p.add_argument('--adapt-every', type=int)
     p.add_argument('--pcie-frac', type=float)
@@ -60,6 +61,11 @@ def main(argv=None):
         if not a.vision_exe or not a.vision_exe.is_file() or not os.access(a.vision_exe, os.X_OK):
             p.error('vision requires an executable --vision-exe or packaged CPU encoder')
         a.vision_device = 'cpu'
+    if a.dflash is not None:
+        if a.engine != 'maya' or a.action != 'config':
+            p.error('--dflash is only supported for Maya config')
+        if not a.dflash.is_file():
+            p.error('--dflash must be an existing local GGUF file')
     if a.engine == 'maya' and (a.spec is not None or a.mtp is not None):
         p.error('--spec and --mtp are only configured for Strata')
     if a.expert_profile is not None and (a.engine != 'strata' or a.action != 'config'):
@@ -109,7 +115,7 @@ def main(argv=None):
     # Enumerate names without loading weights, and before resolving symlinks:
     # shard aliases can point outside the directory containing the supplied GGUF.
     siblings = list(a.gguf.parent.glob('*.gguf'))
-    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe] + siblings
+    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe, a.dflash] + siblings
     directories = [a.base] if a.base and a.base.is_dir() else []
     if a.mtp:
         directories.append(a.mtp)
@@ -190,7 +196,7 @@ def main(argv=None):
         mmap = a.mmap_experts if a.mmap_experts is not None else options.get('experts_bin', False)
         if mmap:
             args.append('--mmap-experts')
-        for key in ('vram_reserve_mib', 'expert_cache', 'expert_profile', 'prefill', 'kv', 'adapt_every', 'pcie_frac', 'spec', 'mtp'):
+        for key in ('vram_reserve_mib', 'expert_cache', 'expert_profile', 'prefill', 'kv', 'adapt_every', 'pcie_frac', 'spec', 'mtp', 'dflash'):
             value = getattr(a, key)
             if value is not None:
                 args += ['--' + key.replace('_', '-'), str(value)]

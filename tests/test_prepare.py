@@ -16,6 +16,59 @@ class Preparation(unittest.TestCase):
         self.profile.write_bytes(b'mock profile')
         self.enterContext(patch.dict('os.environ', {'PREPARE_STRATA_SOURCE': source}))
 
+    def test_dflash_config_and_input_protection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model = root / 'model.gguf'
+            model.touch()
+            drafter = root / 'drafters' / 'draft.gguf'
+            drafter.parent.mkdir()
+            drafter.write_bytes(b'drafter input')
+            config = root / 'run.json'
+            args = ['maya', 'config', '--pack', str(root / 'pack'), '--gguf', str(model),
+                    '--exe', '/bin/engine', '--config', str(config)]
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(args)
+                self.assertNotIn('--dflash', json.loads(config.read_text())['args'])
+                main(args + ['--force', '--dflash', str(drafter), '--vram-reserve-mib', '2048'])
+            flags = json.loads(config.read_text())['args']
+            self.assertEqual(flags.count('--dflash'), 1)
+            self.assertEqual(flags[flags.index('--dflash') + 1], str(drafter))
+            self.assertEqual(flags[flags.index('--vram-reserve-mib') + 1], '2048')
+            for suffix in ('', '.manifest.json', '.log'):
+                for alias in ('direct', 'symlink', 'hardlink'):
+                    with self.subTest(suffix=suffix, alias=alias):
+                        output = Path(str(config) + suffix)
+                        output.unlink(missing_ok=True)
+                        source = drafter
+                        if alias == 'direct':
+                            output.write_bytes(b'drafter input')
+                            source = output
+                        elif alias == 'symlink':
+                            output.symlink_to(drafter)
+                        else:
+                            output.hardlink_to(drafter)
+                        with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                            main(args + ['--force', '--dflash', str(source)])
+                        self.assertIn('output collides with an input', errors.getvalue())
+                        self.assertEqual(source.read_bytes(), b'drafter input')
+                        self.assertEqual(drafter.read_bytes(), b'drafter input')
+                        output.unlink()
+
+    def test_dflash_rejects_invalid_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            draft = Path(tmp) / 'draft.gguf'
+            draft.touch()
+            cases = [('strata', 'config', draft), ('strata', 'pack', draft),
+                     ('maya', 'pack', draft), ('maya', 'config', Path(tmp)),
+                     ('maya', 'config', Path(tmp) / 'missing.gguf')]
+            for engine, action, path in cases:
+                with self.subTest(engine=engine, action=action, path=path):
+                    with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                        main([engine, action, '--pack', '/pack', '--gguf', '/model',
+                              '--dflash', str(path)])
+                    self.assertIn('--dflash', errors.getvalue())
+
     def test_vision_config_and_input_protection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
