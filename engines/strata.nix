@@ -85,4 +85,38 @@ rec {
   rocmPackage = mkPackage "rocm";
   cudaPackage = mkPackage "cuda";
   toolsPackage = mkPackage "tools";
+  # Vision is a separate upstream mtmd/llama project, not an engine target.
+  visionPackage = pkgs.stdenv.mkDerivation {
+    pname = "strata-vision-cpu";
+    version = metadata.engines.strata.version;
+    inherit src;
+    nativeBuildInputs = [ pkgs.cmake pkgs.ninja ];
+    cmakeDir = "../tools/vision";
+    cmakeFlags = [
+      "-DLLAMA_DIR=${ggml}"
+      "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
+      "-DSTRATA_PORTABLE=ON"
+      "-DSTRATA_VISION_CUDA=OFF"
+      "-DSTRATA_VISION_HIP=OFF"
+      "-DSTRATA_VISION_SYCL=OFF"
+      "-DSTRATA_VISION_METAL=OFF"
+    ];
+    buildPhase = ''
+      runHook preBuild
+      cmake --build . --parallel "$NIX_BUILD_CORES" --target strata-vision
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      install -Dm755 bin/strata-vision "$out/bin/strata-vision"
+      runHook postInstall
+    '';
+    dontInstallCmake = true;
+    meta = {
+      description = "Strata portable CPU image encoder (no models)";
+      license = lib.licenses.mit;
+      platforms = [ "x86_64-linux" ];
+      mainProgram = "strata-vision";
+    };
+  };
 }

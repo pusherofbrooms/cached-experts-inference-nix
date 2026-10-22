@@ -38,6 +38,7 @@
       preparation = pkgs.lib.concatMapAttrs (name: _: let
         prepare = executable: import ./runtime/package.nix {
           inherit pkgs name executable;
+          visionExecutable = if name == "strata" then "${registry.strata.visionPackage}/bin/strata-vision" else null;
           src = inputs.${name};
         };
         rocm = prepare "${engines.${name + "-rocm"}}/bin/${name}";
@@ -66,6 +67,7 @@
       };
     in {
       packages.${system} = engines // preparation // servers // {
+        strata-vision-cpu = registry.strata.visionPackage;
         update-engine = pkgs.writeShellApplication {
           name = "update-engine";
           runtimeInputs = [ pkgs.python3 pkgs.git pkgs.nix ];

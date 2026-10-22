@@ -16,6 +16,47 @@ class Preparation(unittest.TestCase):
         self.profile.write_bytes(b'mock profile')
         self.enterContext(patch.dict('os.environ', {'PREPARE_STRATA_SOURCE': source}))
 
+    def test_vision_config_and_input_protection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model, projector, encoder = (root / n for n in ('model.gguf', 'projector', 'encoder'))
+            for path in (model, projector, encoder):
+                path.write_text('input')
+            encoder.chmod(0o755)
+            config = root / 'vision.json'
+            args = ['strata', 'config', '--pack', str(root / 'pack'), '--gguf', str(model),
+                    '--exe', '/bin/engine', '--config', str(config), '--mmproj', str(projector)]
+            with patch.dict('os.environ', {'PREPARE_STRATA_VISION_EXE': str(encoder)}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    main(args)
+                cfg = json.loads(config.read_text())
+                self.assertEqual(cfg['vision'], {'exe': str(encoder), 'mmproj': str(projector),
+                                                'model': str(model), 'gpu': False, 'max_tokens': 300})
+                self.assertEqual(cfg['args'].count('--vision'), 1)
+                for source in (projector, encoder):
+                    for output in (config, Path(str(config) + '.manifest.json'), Path(str(config) + '.log')):
+                        for hardlink in (False, True):
+                            output.unlink(missing_ok=True)
+                            if hardlink:
+                                output.hardlink_to(source)
+                            else:
+                                output.symlink_to(source)
+                            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                                main(args + ['--force'])
+                            self.assertEqual(source.read_text(), 'input')
+                            output.unlink()
+
+    def test_vision_rejects_invalid_options(self):
+        cases = [(['maya', 'config'], ['--mmproj', '/missing']),
+                 (['strata', 'pack'], ['--vision-device', 'cpu']),
+                 (['strata', 'config'], ['--vision-exe', '/missing']),
+                 (['strata', 'config'], ['--mmproj', '/missing']),
+                 (['strata', 'config'], ['--vision-device', 'gpu'])]
+        for prefix, options in cases:
+            with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main(prefix + ['--pack', '/pack', '--gguf', '/model'] + options)
+
     def test_packaged_engine_rejects_other_engine(self):
         for engine, other in [('strata', 'maya'), ('maya', 'strata')]:
             with patch.dict('os.environ', {'PREPARE_ENGINE': engine}):

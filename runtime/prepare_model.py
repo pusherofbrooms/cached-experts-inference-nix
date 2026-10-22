@@ -35,6 +35,9 @@ def main(argv=None):
     p.add_argument('--config', type=absolute)
     p.add_argument('--exe', type=absolute)
     p.add_argument('--ple-gguf', type=absolute)
+    p.add_argument('--mmproj', type=absolute, help='matching local Strata projector (config only)')
+    p.add_argument('--vision-exe', type=absolute, help='CPU encoder override (default: packaged encoder)')
+    p.add_argument('--vision-device', choices=['cpu'], help='CPU only in this package')
     p.add_argument('--max-context', type=int, default=4096)
     p.add_argument('--vram-reserve-mib', type=int)
     p.add_argument('--expert-cache', help='auto or a nonnegative expert count')
@@ -47,6 +50,16 @@ def main(argv=None):
     p.add_argument('--pcie-frac', type=float)
     p.add_argument('--mmap-experts', action=argparse.BooleanOptionalAction, default=None)
     a = p.parse_args(argv)
+    if any((a.mmproj, a.vision_exe, a.vision_device)):
+        if a.engine != 'strata' or a.action != 'config':
+            p.error('vision options are only supported for Strata config')
+        if not a.mmproj or not a.mmproj.is_file():
+            p.error('vision requires an existing --mmproj file')
+        a.vision_exe = a.vision_exe or (absolute(os.environ['PREPARE_STRATA_VISION_EXE'])
+                                      if os.environ.get('PREPARE_STRATA_VISION_EXE') else None)
+        if not a.vision_exe or not a.vision_exe.is_file() or not os.access(a.vision_exe, os.X_OK):
+            p.error('vision requires an executable --vision-exe or packaged CPU encoder')
+        a.vision_device = 'cpu'
     if a.engine == 'maya' and (a.spec is not None or a.mtp is not None):
         p.error('--spec and --mtp are only configured for Strata')
     if a.expert_profile is not None and (a.engine != 'strata' or a.action != 'config'):
@@ -96,7 +109,7 @@ def main(argv=None):
     # Enumerate names without loading weights, and before resolving symlinks:
     # shard aliases can point outside the directory containing the supplied GGUF.
     siblings = list(a.gguf.parent.glob('*.gguf'))
-    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile] + siblings
+    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe] + siblings
     directories = [a.base] if a.base and a.base.is_dir() else []
     if a.mtp:
         directories.append(a.mtp)
@@ -185,6 +198,10 @@ def main(argv=None):
             args += ['--ple-gguf', str(a.ple_gguf)]
         config = {'exe': str(a.exe), 'args': args, 'cwd': str(a.pack.parent),
                   'tokenizer': str(a.pack / 'tokenizer'), 'model_name': a.pack.name}
+        if a.mmproj:
+            args.append('--vision')
+            config['vision'] = {'exe': str(a.vision_exe), 'mmproj': str(a.mmproj),
+                                'model': str(a.gguf), 'gpu': False, 'max_tokens': 300}
         if log:
             config['log'] = str(log)
         target.parent.mkdir(parents=True, exist_ok=True)

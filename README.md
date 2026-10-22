@@ -192,3 +192,11 @@ Before committing an update:
   GPU variants. Test model conversion and inference separately on real hardware.
 - Keep experimental GPU support labels until validated; a release update alone
   does not establish compatibility with existing packs or models.
+
+### Strata vision
+
+A separate `strata-vision-cpu` package supplies the portable CPU image encoder.
+Strata config preparation accepts `--mmproj /path/to/matching-mmproj.gguf` and
+uses that encoder by default, independently of the ROCm/CUDA text engine.
+See [vision commands and schema](docs/model-preparation.md#strata-images-cpu-encoder).
+GPU vision encoders and real-model image inference remain unvalidated.

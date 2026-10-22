@@ -4,6 +4,7 @@ let
 in pkgs.writeShellApplication {
   name = "server-${name}";
   text = ''
+    ${pkgs.lib.optionalString (name == "strata") "export STRATA_NO_ACQUIRE=1"}
     export PYTHONPATH=${src}:${src}/tools
     exec ${python}/bin/python -m serve.server --engine strata --host 127.0.0.1 "$@"
   '';
