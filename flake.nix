@@ -7,7 +7,7 @@
       flake = false;
     };
     maya = {
-      url = "github:mw00/project-maya/35bb2b22a2e2c65b91e24a41d4b026bfa4e89557";
+      url = "github:mw00/project-maya/25deec505b525212e05faa58697d9d2b7d17fdb3";
       flake = false;
     };
   };

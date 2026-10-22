@@ -3,17 +3,17 @@
     "maya": {
       "flake": false,
       "locked": {
-        "lastModified": 1792567918,
-        "narHash": "sha256-JPjRHVZ5+GrHaZVs9caKHRhAbnSRleo9rrdDUYwEpjQ=",
+        "lastModified": 1792711025,
+        "narHash": "sha256-3it+vlvWPd6jYQqNj4kqBHY6aRDnCnkyDbkYWzBWGBU=",
         "owner": "mw00",
         "repo": "project-maya",
-        "rev": "35bb2b22a2e2c65b91e24a41d4b026bfa4e89557",
+        "rev": "25deec505b525212e05faa58697d9d2b7d17fdb3",
         "type": "github"
       },
       "original": {
         "owner": "mw00",
         "repo": "project-maya",
-        "rev": "35bb2b22a2e2c65b91e24a41d4b026bfa4e89557",
+        "rev": "25deec505b525212e05faa58697d9d2b7d17fdb3",
         "type": "github"
       }
     },
