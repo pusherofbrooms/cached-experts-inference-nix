@@ -1,18 +1,23 @@
 # Common preparation, safety and troubleshooting
 
-Model downloads and pack creation are **runtime/user operations**, not Nix build steps. Do not run upstream `setup.py` during builds: it manages Python dependencies, engine downloads and model weights. The derivations in `engines/` build selected CMake targets, with a fixed llama.cpp input and disconnected FetchContent. They do not prepare models. The native `strata-tools` and `maya-tools` packages inspect GGUFs and plan memory; they are not inference engines or complete pack-builder distributions. In contrast, `prepare-strata-tools` and `prepare-maya-tools` provide GPU-free packing and config generation (config requires `--exe /absolute/bin/engine`).
+Model downloads and pack creation are **runtime/user operations**, not Nix build steps. Do not run upstream `setup.py` during builds: it manages Python dependencies, engine downloads and model weights. The derivations in `engines/` build selected CMake targets, with a fixed llama.cpp input and disconnected FetchContent. They do not prepare models. The native `strata-tools` and `maya-tools` packages inspect GGUFs and plan memory; they are not inference engines or complete pack-builder distributions. See the preparation packages below for packing and config generation.
 
-Preparation packages retain the positional engine argument and reject mismatches.
-Legacy `prepare-model` / `prepare-model-cuda` aliases are Strata-only; old Maya
-commands must use `prepare-maya` / `prepare-maya-cuda` instead. The aliases expose
-`bin/prepare-strata`; `nix run` resolves this automatically.
+## Packaged preparation and configuration
 
-## Sources and scope
+`prepare-<engine>` and `prepare-<engine>-rocm` include only that engine's
+ROCm text engine; `prepare-<engine>-cuda` includes its CUDA text engine instead.
+Both also supply the matching CPU vision encoder.
+The positional engine argument must match the package. `--exe` overrides the
+config path, but does not remove the packaged GPU dependency.
 
-Commands in these guides were checked against both upstream checkouts at the revisions used by the derivations:
+For GPU-free packing/config generation, use `prepare-strata-tools` or
+`prepare-maya-tools` with `--exe /absolute/bin/engine` for config. They include
+the matching CPU vision encoder, but no text engine or GPU toolkit.
+Legacy `prepare-model` / `prepare-model-cuda` aliases are **Strata-only** and
+expose `bin/prepare-strata`; `nix run` resolves this automatically. Old Maya
+commands must use `prepare-maya` / `prepare-maya-cuda` instead.
 
-- [Strata](https://github.com/Niko1221/Strata/tree/011c9e600a93bbc9fd451c563501b5831c32bbca): `tools/iq_pack.py`, `tools/_paths.py`, `src/program/generate.cpp`, and `docs/AMD_HIP.md` (model and serving configuration).
-- [Maya](https://github.com/mw00/project-maya/tree/35bb2b22a2e2c65b91e24a41d4b026bfa4e89557): `tools/iq_pack.py`, `tools/strata_tokenizer.py`, `maya.py` (GLM pack construction), `src/program/generate.cpp`, and `docs/AMD_MAYA.md` / `docs/GLM5-FLASH.md`.
+## Download prerequisites
 
 The downloader is generic Hugging Face tooling, **not** an upstream setup/model-selection replacement. The root flake provides this interface:
 
@@ -27,11 +32,18 @@ Download every shard of one compatible quant, retaining their original names tog
 
 ## Preparation options and safety
 
+Native below means Strata Qwen and Maya GLM IQ packing/serving. Maya DeepSeek
+is a separate, text-only workflow with different packing, layout and runtime
+flags; do not transfer native tuning options to it. See the
+[DeepSeek guide](maya.md#deepseek-flash-local-gguf-text-only).
+
 Use writable directories outside the Nix store. Wrappers supply pinned sources
 and Python dependencies; no checkout, pip or manual environment is needed.
 Regeneration replaces manual config edits: retain every desired setting.
-Pack preparation validates sibling completeness with upstream Model; symlink
-filenames are retained for sibling discovery.
+Native Strata and Maya GLM packing validate sibling completeness with upstream
+Model; symlink filenames are retained for sibling discovery. Maya DeepSeek uses
+a separate packer and checks numbered siblings in the input directory; see the
+[DeepSeek workflow](maya.md#deepseek-flash-local-gguf-text-only).
 
 Use real shard filenames. Strata discovers the PLE shard during packing and records
 it in the adjacent manifest. Config generation enables `--mmap-experts` when that
@@ -49,12 +61,12 @@ restoring original weights. Keep original GGUF shards at their recorded paths.
 
 ## What to expect and verify
 
-- `iq_pack.py` reads all adjacent shards and exports `index.txt`, `dense.bin`, `native_experts.txt` and `tokenizer/`. Check successful exit and these outputs; keep pack, tokenizer, source shards and engine revision together. Do not mix packs between forks.
+- For native Strata and Maya GLM packs, `iq_pack.py` reads the model's sibling shards and exports `index.txt`, `dense.bin`, `native_experts.txt` and `tokenizer/`. Check successful exit and these outputs; keep pack, tokenizer, source shards and engine revision together. Do not mix packs between forks.
 - `tools/strata_pack.py build/verify` is the older canonical pack workflow, not a substitute for the native IQ packs in the engine guides. `strata-gguf` and `strata-dequant` do not perform this full conversion.
 - Both native `--serve` commands stay resident and read an internal token protocol on stdin. They do **not** start an HTTP/OpenAI server or accept raw text prompts. Use packaged `server-strata` / `server-maya` with the generated JSON configuration/tokenizer for HTTP. Native CLI tests can instead use `--tokens` / `--tokens-file` with model-correct token IDs.
 - There is no native runtime `--backend rocm` switch: use the HIP-built executable. Both derivations currently target `gfx1100`; other GPUs need appropriate build overrides. Wave64/CDNA is not automatically supported by these defaults. Use a working Linux ROCm driver, accessible GPU devices and sufficient RAM/VRAM; `ROCR_VISIBLE_DEVICES`/`HIP_VISIBLE_DEVICES` can select a card.
 - mmap avoids a full pinned expert arena, not the need for fast storage and page-cache RAM. Leave room for both GGUFs and pack outputs. Begin with a short context; allocation success does not prove full-context inference or quality.
-- Build success is not runtime validation. See the [current user-reported status](../README.md#validation-status); CUDA runtime remains untested. Source metadata may still carry earlier experimental/untested labels; this documentation update does not change source behavior.
+- Build success is not runtime validation. See the [current user-reported status](../README.md#validation-status); CUDA runtime remains untested. Source metadata may still carry experimental/untested labels; user reports do not establish general hardware support.
 
 
 **Desktop GPU headroom:** Strata config generation enables `--expert-cache auto`.
@@ -67,14 +79,20 @@ OS-enforced reservation or a guarantee against GPU stalls.
 
 
 Pack and config are deliberately separate operations. Strata config generation needs
-no model files. Maya pack and config require every input shard to exist and be
+no model files. Maya GLM pack and config require every input shard to exist and be
 visible by the same basename in `pack.parent`, resolving to the same input file.
-Neither config workflow validates model contents or compatibility. Pack invokes the pinned upstream
-`tools/iq_pack.py` directly from packaged source, with Nix Python dependencies
-and gguf-py pinned to llama.cpp `3cf03257f219afbe7334045ff7c6a06ac68c627d`.
-No installers or upstream checkout modifications are used. `--base` permits
-explicit dense sharing; `--compat-bf16` can introduce rounding; `--experts-bin`
-can consume substantial disk. Original source shards must remain available.
+Maya DeepSeek instead keeps the original shard directory recorded in its pack;
+no pack-parent shard links are needed, and its pack must be writable.
+Config generation does not validate model contents or compatibility. Native
+Strata and Maya GLM packing invoke the pinned upstream `tools/iq_pack.py`;
+Maya DeepSeek uses `tools/ds4/pack_gguf.py`. Both run from packaged source with
+Nix Python dependencies and gguf-py from the shared llama.cpp revision recorded
+in `engines/metadata.json`.
+No installers or upstream checkout modifications are used. For native Strata
+and Maya GLM packs, `--base` permits explicit dense sharing; `--compat-bf16` can
+introduce rounding; `--experts-bin` can consume substantial disk. These options
+are not supported by the DeepSeek wrapper. Original source shards must remain
+available.
 
 Existing outputs/manifests are refused unless `--force`. Force allows upstream
 in-place pack updates, not a clean rebuild; prefer a fresh directory. Failures
@@ -83,22 +101,6 @@ absolute paths, options and commands, not model hashes or download provenance.
 
 Matching HTTP frontends are Nix packaged: `nix run .#server-strata -- --config /data/run.json`
 (or `server-maya`). They bind loopback by default; no installers run.
-Preparation packages are independent: `prepare-<engine>` and
-`prepare-<engine>-rocm` include only that engine's ROCm executable;
-`prepare-<engine>-cuda` includes only its CUDA executable. The positional engine
-argument is retained and must match the package. `--exe` overrides the config
-path, but does not remove the packaged GPU dependency.
-
-For GPU-free packing/config generation use `prepare-strata-tools` or
-`prepare-maya-tools`. These include only the corresponding source and Python
-packing dependencies; config requires an explicit `--exe /absolute/bin/engine`.
-They do not build a native engine or GPU toolkit.
-
-Compatibility aliases `prepare-model` and `prepare-model-cuda` now mean **Strata
-only** (ROCm and CUDA respectively). Old Maya commands must switch to
-`prepare-maya` / `prepare-maya-cuda`; a mismatched engine is rejected rather
-than silently generating a config for another engine.
-
 
 ## GPU selection and troubleshooting
 
@@ -140,8 +142,19 @@ private paths or credentials).
 ## Troubleshooting checklist
 
 - Startup failure: inspect `<config>.log`; use the engine guide’s config repair steps.
-- Maya missing shards: repair same-basename links in `pack.parent`; no repack for layout-only fixes.
+- Maya GLM missing shards: repair same-basename links in `pack.parent`; no repack for layout-only fixes. DeepSeek instead retains the original shard directory.
 - Memory pressure: start with short context and explicit desktop headroom; mmap still needs page-cache RAM and fast storage.
 - Wrong backend or stale store paths: regenerate with the matching preparation package and retain all desired flags.
 - Vision failure: check exact model/projector pairing and CPU requirements; filenames alone do not validate compatibility.
+
+
+## Sources and scope
+
+These guides describe the upstream revisions packaged by this checkout, not
+necessarily the latest upstream releases. See [`../flake.lock`](../flake.lock)
+for resolved source revisions and [`../engines/metadata.json`](../engines/metadata.json)
+for package versions and the shared llama.cpp dependency.
+
+- [Strata](https://github.com/Niko1221/Strata): `tools/iq_pack.py`, `tools/_paths.py`, `src/program/generate.cpp`, and `docs/AMD_HIP.md` (model and serving configuration).
+- [Maya](https://github.com/mw00/project-maya): `tools/iq_pack.py`, `tools/strata_tokenizer.py`, `maya.py` (GLM pack construction), `src/program/generate.cpp`, and `docs/AMD_MAYA.md` / `docs/GLM5-FLASH.md`.
 

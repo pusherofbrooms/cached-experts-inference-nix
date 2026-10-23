@@ -1,10 +1,8 @@
 # Model preparation index
 
-The former combined guide is now split by engine. Existing entry points remain
-here for compatibility; commands and runtime behavior have not changed.
-
 - [Strata: packing, defaults, MTP and CPU vision](strata.md)
 - [Maya: GLM packing, shard layout, KV, DFlash and CPU vision](maya.md)
+- [Maya: DeepSeek Flash text workflow](maya.md#deepseek-flash-local-gguf-text-only)
 - [Common preparation, safety and troubleshooting](common.md)
 - [Maintenance and engine updates](maintenance.md)
 - [Overview and validation status](../README.md)

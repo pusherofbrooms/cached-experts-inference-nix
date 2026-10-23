@@ -1,9 +1,18 @@
 # Maintenance
 
-Run `python3 -m unittest discover -s tests -v`; the flake also exposes
-`checks.x86_64-linux.prepare-model`. Adapters are registered in
-`runtime/prepare_model.py`; add source packaging and a config argument mapping
-when adding another engine.
+## Testing
+
+Run `python3 -m unittest discover -s tests -v`. The flake's
+`checks.x86_64-linux.prepare-model` runs the same suite. Tests cover wrapper
+argument/config generation, path safety, pack orchestration and updater behavior
+using temporary fixtures and mocked external operations; they do not establish
+real model compatibility or inference quality.
+
+The other flake checks build `strata-tools` and `maya-tools` and run each
+packaged HTTP frontend with `--help`, checking for `--config`. These check tool
+builds and frontend imports/CLI availability, not GPU engine execution, actual
+packing, HTTP serving, or text/vision inference. Validate those separately with
+compatible models and hardware; build success alone is not runtime validation.
 
 ## Updating engines
 
@@ -42,3 +51,11 @@ Before committing an update:
 - Keep experimental GPU support labels until validated; a release update alone
   does not establish compatibility with existing packs or models.
 
+
+## Adding an engine
+
+Adapters are registered in `runtime/prepare_model.py`. Add source packaging and
+a config argument mapping, wire the engine into the flake registry/packages,
+and add tests for its CLI, layout and safety rules. Review which shared defaults
+actually apply rather than inheriting another engine's model assumptions.
+Document runtime validation separately from automated checks.

@@ -1,10 +1,16 @@
 # Maya guide
 
-Read [common preparation and safety](common.md) first. This is the native
-GLM workflow, not DeepSeek or EXL3. Use `prepare-maya-cuda` for CUDA or
-`prepare-maya-tools` with `--exe /absolute/bin/maya` for GPU-free preparation.
+Read [common preparation and safety](common.md) first. Choose the [native GLM workflow](#pack-and-serve) or
+[DeepSeek text workflow](#deepseek-flash-local-gguf-text-only); these are not
+interchangeable. EXL3 is not covered here. Use `prepare-maya-cuda` for CUDA or
+`prepare-maya-tools` with an explicit `--exe` for GPU-free configuration:
+point it to `maya` for GLM or `maya-ds4` for DeepSeek.
 
 ## Pack and serve
+
+This is the native GLM path. Obtain all compatible GGUF shards first; see
+[download prerequisites](common.md#download-prerequisites) and upstream model
+guidance. Keep the pack beside the shards as described below.
 
 ```sh
 # Maya GLM-5.3-Flash (not DeepSeek or EXL3).
@@ -43,11 +49,58 @@ the pack manifest when present; that manifest does not replace layout checks.
 Adding layout symlinks needs **no repack**. Rerun only `maya config` with the
 same paths and `--force` to replace config and manifest safely. Force does not
 bypass input/output collision checks; forcing a pack is an upstream in-place
-update, not a clean rebuild. Maya now writes `<config>.log` through the HTTP
+update, not a clean rebuild. Maya writes `<config>.log` through the HTTP
 frontend, with the same path safety protections as Strata. Config generation
 does not create or truncate the log or start a server.
 
+## DeepSeek Flash (local GGUF, text only)
+
+Select `--family deepseek` explicitly (Maya only); the default remains native
+GLM. This uses `tools/ds4/pack_gguf.py`, not the GLM packer. Numbered siblings
+are selected deterministically from `--gguf`; all must exist. Other GGUFs are
+not included. External packs are supported and must be writable: the runtime
+cwd is the pack itself. Outputs inside input shard directories are rejected,
+even with force. GLM/Strata tuning and vision flags are rejected. Config uses
+`--vision off --dspark none --tp 1`; reserve maps to `--reserve-mib`.
+
+For the existing five IQ1_S shards (no quality/compatibility promise):
+
+```sh
+MODEL="$HOME/.local/share/project-maya/dsflash/models/Maya-XS"
+GGUF="$MODEL/DeepSeek-V4.1-Flash-1017-Maya-XS-IQ1_S-00001-of-00005.gguf"
+PACK="$HOME/.local/share/project-maya/dsflash/pack"
+CONFIG="$HOME/.local/share/project-maya/dsflash/maya.json"
+nix run .#prepare-maya-rocm -- maya pack --family deepseek --gguf "$GGUF" --pack "$PACK"
+nix run .#prepare-maya-rocm -- maya config --family deepseek \
+  --gguf "$GGUF" --pack "$PACK" --config "$CONFIG" \
+  --max-context 131072 --vram-reserve-mib 2048
+# When ready (not part of preparation):
+nix run .#server-maya -- --config "$CONFIG"
+```
+
+The user reports successful ROCm text inference with this Maya-XS IQ1_S pack
+and the configuration above (128K configured context, 2 GiB VRAM reserve).
+This does not establish full-context capacity, output quality, or performance.
+Unlike GLM, no shard symlinks are required beside the pack: DeepSeek records
+the original model directory. Keep the original shards available.
+
+KV quantization is automatic in this engine: FP8 sliding-window KV and FP4
+compressed KV/index keys. Do not pass GLM's `--kv int8` or `--expert-cache auto`.
+The generated config selects `maya-ds4`, records `backend: hip` for ROCm, and
+logs engine stderr to `<config>.log`. To regenerate an existing config, add
+`--force`. For a smaller initial allocation, use `--max-context 4096`.
+
+CUDA uses `prepare-maya-cuda`. GPU-free `prepare-maya-tools` config requires
+explicit `--exe /absolute/path/to/maya-ds4`; engine wrappers supply their packaged
+`maya-ds4`. No packing or inference is performed by config generation.
+No model downloads occur. Implicit optional `Engram` directories in/beside the
+model, and `dspark`/`vision` siblings, are currently rejected with an actionable
+error rather than silently included. If present, use an isolated local shard
+folder (manual symlinks are fine); no links or files are created by the wrapper.
+
 ## Optional DFlash
+
+This section applies to native GLM, not the DeepSeek workflow above.
 
 Maya config optionally accepts `--dflash` pointing to an existing local drafter
 GGUF; it is never enabled by default and is rejected for Strata and pack.
@@ -94,8 +147,14 @@ nix run .#prepare-maya-rocm -- maya config \
   --vision-model "$VISION/GLM-5.3-Flash-vocab.gguf" --vision-device cpu \
   --max-context 8192 --kv int8 --vram-reserve-mib 3072 --mmap-experts
 
-# Only when ready, on an unused port (not run during implementation):
+# Start only when ready, on an unused port:
 nix run .#server-maya -- --config "$CONFIG" --port 8099
+```
+
+Loading can take a minute to several minutes. Keep the server running, then
+check readiness in another terminal:
+
+```sh
 curl --fail http://127.0.0.1:8099/health
 ```
 
@@ -117,50 +176,5 @@ any vision input (including symlinks/hardlinks), even with `--force`.
 Content/model compatibility is not inferred from filenames.
 
 Check `images: true`, then send a real image using the [Strata image request example](strata.md#strata-images-cpu-encoder)
-with port 8099 and your model name. CPU build/linkage and frontend imports were validated previously; GLM text and
-CPU image inference now have [user-reported validation](../README.md#validation-status).
-
-## DeepSeek Flash (local GGUF, text only)
-
-Select `--family deepseek` explicitly (Maya only); the default remains native
-GLM. This uses `tools/ds4/pack_gguf.py`, not the GLM packer. Numbered siblings
-are selected deterministically from `--gguf`; all must exist. Other GGUFs are
-not included. External packs are supported and must be writable: the runtime
-cwd is the pack itself. Outputs inside input shard directories are rejected,
-even with force. GLM/Strata tuning and vision flags are rejected. Config uses
-`--vision off --dspark none --tp 1`; reserve maps to `--reserve-mib`.
-
-For the existing five IQ1_S shards (no quality/compatibility promise):
-
-```sh
-MODEL="$HOME/.local/share/project-maya/dsflash/models/Maya-XS"
-GGUF="$MODEL/DeepSeek-V4.1-Flash-1017-Maya-XS-IQ1_S-00001-of-00005.gguf"
-PACK="$HOME/.local/share/project-maya/dsflash/pack"
-CONFIG="$HOME/.local/share/project-maya/dsflash/maya.json"
-nix run .#prepare-maya-rocm -- maya pack --family deepseek --gguf "$GGUF" --pack "$PACK"
-nix run .#prepare-maya-rocm -- maya config --family deepseek \
-  --gguf "$GGUF" --pack "$PACK" --config "$CONFIG" \
-  --max-context 131072 --vram-reserve-mib 2048
-# When ready (not part of preparation):
-nix run .#server-maya -- --config "$CONFIG"
-```
-
-The user reports successful ROCm text inference with this Maya-XS IQ1_S pack
-and the configuration above (128K configured context, 2 GiB VRAM reserve).
-This does not establish full-context capacity, output quality, or performance.
-Unlike GLM, no shard symlinks are required beside the pack: DeepSeek records
-the original model directory. Keep the original shards available.
-
-KV quantization is automatic in this engine: FP8 sliding-window KV and FP4
-compressed KV/index keys. Do not pass GLM's `--kv int8` or `--expert-cache auto`.
-The generated config selects `maya-ds4`, records `backend: hip` for ROCm, and
-logs engine stderr to `<config>.log`. To regenerate an existing config, add
-`--force`. For a smaller initial allocation, use `--max-context 4096`.
-
-CUDA uses `prepare-maya-cuda`. GPU-free `prepare-maya-tools` config requires
-explicit `--exe /absolute/path/to/maya-ds4`; engine wrappers supply their packaged
-`maya-ds4`. No packing or inference is performed by config generation.
-No model downloads occur. Implicit optional `Engram` directories in/beside the
-model, and `dspark`/`vision` siblings, are currently rejected with an actionable
-error rather than silently included. If present, use an isolated local shard
-folder (manual symlinks are fine); no links or files are created by the wrapper.
+with port 8099 and your model name. See [validation status](../README.md#validation-status)
+for build checks and user-reported GLM text and CPU image inference results.

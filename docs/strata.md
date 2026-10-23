@@ -6,6 +6,21 @@ use `prepare-strata-cuda` for CUDA or `prepare-strata-tools` with an explicit
 
 ## Pack and serve
 
+Choose a model/quant supported by the pinned upstream Strata documentation
+and publisher's model card; the downloader does not determine suitability.
+Accept any license and authenticate with Hugging Face for gated repositories.
+Download every shard of one compatible quant, keeping original basenames together.
+This generic pinned template does not select or convert a model:
+
+```sh
+nix run .#download-model -- OWNER/MODEL-GGUF /data/qwen \
+  --revision FULL_HUGGING_FACE_COMMIT --include 'YOUR-QUANT-*.gguf'
+```
+
+Replace the repository, revision and file selection, then use the actual first
+shard below. See [download prerequisites](common.md#download-prerequisites)
+for provenance and authentication cautions.
+
 ```sh
 # Strata Qwen native IQ pack; download all sibling shards first.
 nix run .#prepare-strata -- strata pack --gguf /data/qwen/first.gguf \
@@ -25,37 +40,23 @@ Strata supports `--kv fp16|int8|q4_0|k8v4`. For an explicitly chosen 128K
 context, add `--max-context 131072 --kv k8v4 --vram-reserve-mib 2048`;
 this is not a default or a guarantee that the context fits.
 
-### Repair an existing Strata configuration
+## Configuration defaults and reference
 
-Strata config generation now supplies `--spec 2 --prefill auto` unless overridden.
+Strata config generation supplies `--spec 2 --prefill auto` unless overridden.
 These are startup requirements, not additional performance tuning: the pinned
 `generate.cpp` native IQ check requires spec >= 2, and resident serving requires
 positive prefill. `--prefill` accepts `auto` or a positive integer for Strata;
-Maya keeps its previous integer-only behavior and receives neither default.
+Maya accepts only positive integers for `--prefill` and receives neither default.
 `--spec 3` preserves an older spec-3 configuration.
 
 MTP is **optional**: the pinned resident path explicitly falls back to lookup or
 plain decoding without it. To retain an existing drafter, pass
-`--mtp /home/jjorgens/.local/share/strata/models/mtp/rt`. This must be an existing
+`--mtp /absolute/path/to/mtp/rt`. This must be an existing
 directory; preparation neither creates nor validates its model contents.
 Strata configs also record `log` as `<config>.log`, where the server appends engine
 stderr and can report startup errors. Output/log aliases of inputs, MTP contents,
 and each other are rejected even with `--force`. Do not change these paths into
 aliases after generation.
-
-Rerun **config only** with `--force` to replace the existing JSON and manifest;
-no repack is required. With `GGUF`, `PACK`, and `CONFIG` set to the same absolute
-paths used previously, the CUDA command retaining the old spec/MTP/prefill is:
-
-```sh
-nix run .#prepare-strata-cuda -- strata config \
-  --gguf "$GGUF" --pack "$PACK" --config "$CONFIG" --force \
-  --spec 3 --prefill auto --mtp /home/jjorgens/.local/share/strata/models/mtp/rt
-```
-
-Retain any other explicitly chosen flags from the previous config command.
-For ROCm use `.#prepare-strata` instead. This command generates configuration;
-it does not launch the GPU engine.
 
 Strata config also defaults to `--expert-cache auto` and `--expert-profile` pointing
 at the packaged Strata source's `data/expert-profile.bin`. Override with
@@ -66,7 +67,26 @@ Profile aliases are protected against config, manifest and log collisions even
 with `--force`. These defaults do not affect Maya or packing. The default
 `--max-context` remains 4096.
 
+### Repair an existing Strata configuration
+
+Rerun **config only** with `--force` to replace the existing JSON and manifest;
+no repack is required. With `GGUF`, `PACK`, and `CONFIG` set to the same absolute
+paths used previously, and `MTP` set to your existing drafter directory, a CUDA
+command retaining spec 3, MTP and automatic prefill is:
+
+```sh
+nix run .#prepare-strata-cuda -- strata config \
+  --gguf "$GGUF" --pack "$PACK" --config "$CONFIG" --force \
+  --spec 3 --prefill auto --mtp "$MTP"
+```
+
+Retain any other explicitly chosen flags from the previous config command.
+For ROCm use `.#prepare-strata` instead. This command generates configuration;
+it does not launch the GPU engine.
+
 ## Strata images (CPU encoder)
+
+Optional: complete the text workflow first.
 
 `strata-vision-cpu` builds the pinned Strata `tools/vision` project against the
 same pinned llama.cpp as the engine. It is independent of Maya and works alongside
@@ -135,7 +155,7 @@ The generated native `args` include `--vision`, and the frontend gets:
 
 ```json
 "vision": {
-  "exe": "/nix/store/...-strata-vision-cpu-0.1.47/bin/strata-vision",
+  "exe": "/nix/store/...-strata-vision-cpu-<version>/bin/strata-vision",
   "mmproj": "/absolute/path/to/matching-mmproj.gguf",
   "model": "/absolute/path/to/first-model-shard.gguf",
   "gpu": false,
@@ -157,11 +177,10 @@ log cannot overwrite them, including symlink/hardlink aliases, even with
 Keep the preparation/encoder store paths rooted (for example the build link
 above); JSON references alone are not Nix GC roots.
 
-Inspected sources: pinned `tools/vision/CMakeLists.txt`, `strata_vision.cpp`,
-`setup.py`, `strata_control/vision_reader.py`, `acquisition.py`, and the frontend's
-`Vision`, `engine_args`, device/environment and lazy/elastic policies; also the
-local `~/ai/Strata` checkout. The flake pin is authoritative (notably its HIP
-vision build includes a PIC fix missing in the local checkout).
+Relevant sources at the flake's pinned revision: `tools/vision/CMakeLists.txt`,
+`strata_vision.cpp`, `setup.py`, `strata_control/vision_reader.py`,
+`acquisition.py`, and the frontend's `Vision`, `engine_args`, device/environment
+and lazy/elastic policies. The flake pin is authoritative.
 Upstream optionally builds `strata-vision-hip` with explicit architecture targets
 and a separate CPU fallback. Its automatic GPU policy generally starts at 24 GB
 VRAM; this flake deliberately does **not** implement that hardware-dependent
