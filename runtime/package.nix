@@ -1,4 +1,4 @@
-{ pkgs, name, src, executable ? null, visionExecutable ? null }:
+{ pkgs, name, src, executable ? null, backend ? null, visionExecutable ? null, deepseekExecutable ? null }:
 let
   metadata = builtins.fromJSON (builtins.readFile ../engines/metadata.json);
   llama = pkgs.fetchzip {
@@ -12,6 +12,8 @@ in pkgs.writeShellApplication {
   runtimeInputs = [ python ];
   text = ''
     export PREPARE_ENGINE=${name}
+    ${if backend == null then "unset PREPARE_BACKEND" else "export PREPARE_BACKEND=${backend}"}
+    ${if deepseekExecutable == null then "unset ${prefix}_DS4_EXE" else "export ${prefix}_DS4_EXE=${deepseekExecutable}"}
     ${if visionExecutable == null then "unset ${prefix}_VISION_EXE" else "export ${prefix}_VISION_EXE=${visionExecutable}"}
     ${if executable == null then "unset ${prefix}_EXE" else "export ${prefix}_EXE=${executable}"}
     export ${prefix}_REV=${src.rev}

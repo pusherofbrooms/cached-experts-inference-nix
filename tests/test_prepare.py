@@ -492,3 +492,81 @@ class Preparation(unittest.TestCase):
                           '--config', str(config), '--exe', '/bin/engine', '--force'])
                 self.assertEqual(config.read_bytes(), b'original')
                 self.assertEqual(gguf.read_bytes(), b'weights')
+
+class DeepSeekPreparation(unittest.TestCase):
+    def test_pack_and_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model = root / 'inputs'
+            model.mkdir()
+            shards = [model / f'm-0000{i}-of-00002.gguf' for i in (1, 2)]
+            for shard in shards:
+                shard.touch()
+            (model / 'unrelated.gguf').touch()
+            pack = root / 'pack'
+            config = root / 'run.json'
+            common = ['--family', 'deepseek', '--gguf', str(shards[1]), '--pack', str(pack)]
+            with patch.dict('os.environ', {'PREPARE_MAYA_SOURCE': tmp}), patch('runtime.prepare_model.subprocess.run') as run:
+                main(['maya', 'pack'] + common)
+                command = run.call_args.args[0]
+                self.assertTrue(command[1].endswith('tools/ds4/pack_gguf.py'))
+                self.assertEqual(command[-2:], [p.name for p in shards])
+            pack.mkdir()
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(['maya', 'config'] + common + ['--config', str(config), '--exe', '/bin/ds4'])
+            cfg = json.loads(config.read_text())
+            self.assertEqual(cfg['cwd'], str(pack))
+            self.assertEqual(cfg['args'][-6:], ['--vision', 'off', '--dspark', 'none', '--tp', '1'])
+            for extra in (['--kv', 'int8'], ['--no-mmap-experts'], ['--compat-bf16']):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(['maya', 'pack'] + common + extra)
+            for output in (model / 'pack', shards[0]):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(['maya', 'pack'] + common + ['--pack', str(output), '--force'])
+            (root / 'vision').mkdir()
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main(['maya', 'pack'] + common + ['--force'])
+            (root / 'vision').rmdir()
+            shards[0].unlink()
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main(['maya', 'pack'] + common + ['--force'])
+
+    def test_existing_pack_aliases_rejected(self):
+        for kind in ('file-symlink', 'directory-symlink', 'dangling', 'hardlink', 'pack-symlink'):
+            for force in (False, True):
+                with self.subTest(kind=kind, force=force), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    model = root/'inputs'
+                    model.mkdir()
+                    shard = model/'model.gguf'
+                    shard.write_bytes(b'original weights')
+                    pack = root/'pack'
+                    if kind == 'pack-symlink':
+                        pack.symlink_to(model, target_is_directory=True)
+                    else:
+                        nested = pack/'nested'
+                        nested.mkdir(parents=True)
+                        entry = nested/'alias'
+                        if kind == 'hardlink':
+                            entry.hardlink_to(shard)
+                        else:
+                            entry.symlink_to(model if kind == 'directory-symlink' else
+                                             root/'missing' if kind == 'dangling' else shard)
+                    with patch('runtime.prepare_model.subprocess.run') as run:
+                        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                            main(['maya', 'pack', '--family', 'deepseek', '--gguf', str(shard),
+                                  '--pack', str(pack)] + (['--force'] if force else []))
+                        run.assert_not_called()
+                    self.assertEqual(shard.read_bytes(), b'original weights')
+
+    def test_backend_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shard = root/'model.gguf'
+            shard.touch()
+            config = root/'run.json'
+            for backend in ('hip', 'cuda'):
+                with patch.dict('os.environ', {'PREPARE_BACKEND': backend}), contextlib.redirect_stdout(io.StringIO()):
+                    main(['maya', 'config', '--gguf', str(shard), '--pack', str(root/'pack'),
+                          '--config', str(config), '--exe', '/bin/engine', '--force'])
+                self.assertEqual(json.loads(config.read_text())['backend'], backend)

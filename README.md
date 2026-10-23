@@ -42,7 +42,7 @@ nix run .#server-maya -- --config /data/maya.json
 ```
 
 - [Strata guide](docs/strata.md): native IQ packs, startup defaults, MTP, KV and CPU vision.
-- [Maya guide](docs/maya.md): GLM packs, shard layout, fp16/int8 KV, DFlash and CPU vision.
+- [Maya guide](docs/maya.md): GLM packs, DeepSeek Flash preparation, KV, DFlash and CPU vision.
 - [Common preparation and troubleshooting](docs/common.md): downloads, backend/tools selection, safety and memory.
 - [Maintenance](docs/maintenance.md): tests, provenance and engine updates.
 - [Model preparation index](docs/model-preparation.md): compatibility entry point.
@@ -61,6 +61,10 @@ User-reported runtime validation on **RX 7900 XTX, 24 GB VRAM, approximately
   but was slower in that workload: about 24 tokens/s versus 29–32 without it.
   This is not a controlled benchmark.
 
+Additional user-reported validation: **Maya DeepSeek-V4.1-Flash Maya-XS IQ1_S**
+packing and ROCm text inference work with a 128K configured context and 2 GiB
+VRAM reserve. Full-context capacity, quality, and performance were not measured.
+See the [DeepSeek preparation workflow](docs/maya.md#deepseek-flash-local-gguf-text-only).
+
 These reports do not establish compatibility or performance for other models,
-GPUs or contexts. This is a **documentation-only reorganization**, not a source
-behavior change; no new inference tests were performed for it.
+GPUs or contexts.

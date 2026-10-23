@@ -119,3 +119,48 @@ Content/model compatibility is not inferred from filenames.
 Check `images: true`, then send a real image using the [Strata image request example](strata.md#strata-images-cpu-encoder)
 with port 8099 and your model name. CPU build/linkage and frontend imports were validated previously; GLM text and
 CPU image inference now have [user-reported validation](../README.md#validation-status).
+
+## DeepSeek Flash (local GGUF, text only)
+
+Select `--family deepseek` explicitly (Maya only); the default remains native
+GLM. This uses `tools/ds4/pack_gguf.py`, not the GLM packer. Numbered siblings
+are selected deterministically from `--gguf`; all must exist. Other GGUFs are
+not included. External packs are supported and must be writable: the runtime
+cwd is the pack itself. Outputs inside input shard directories are rejected,
+even with force. GLM/Strata tuning and vision flags are rejected. Config uses
+`--vision off --dspark none --tp 1`; reserve maps to `--reserve-mib`.
+
+For the existing five IQ1_S shards (no quality/compatibility promise):
+
+```sh
+MODEL="$HOME/.local/share/project-maya/dsflash/models/Maya-XS"
+GGUF="$MODEL/DeepSeek-V4.1-Flash-1017-Maya-XS-IQ1_S-00001-of-00005.gguf"
+PACK="$HOME/.local/share/project-maya/dsflash/pack"
+CONFIG="$HOME/.local/share/project-maya/dsflash/maya.json"
+nix run .#prepare-maya-rocm -- maya pack --family deepseek --gguf "$GGUF" --pack "$PACK"
+nix run .#prepare-maya-rocm -- maya config --family deepseek \
+  --gguf "$GGUF" --pack "$PACK" --config "$CONFIG" \
+  --max-context 131072 --vram-reserve-mib 2048
+# When ready (not part of preparation):
+nix run .#server-maya -- --config "$CONFIG"
+```
+
+The user reports successful ROCm text inference with this Maya-XS IQ1_S pack
+and the configuration above (128K configured context, 2 GiB VRAM reserve).
+This does not establish full-context capacity, output quality, or performance.
+Unlike GLM, no shard symlinks are required beside the pack: DeepSeek records
+the original model directory. Keep the original shards available.
+
+KV quantization is automatic in this engine: FP8 sliding-window KV and FP4
+compressed KV/index keys. Do not pass GLM's `--kv int8` or `--expert-cache auto`.
+The generated config selects `maya-ds4`, records `backend: hip` for ROCm, and
+logs engine stderr to `<config>.log`. To regenerate an existing config, add
+`--force`. For a smaller initial allocation, use `--max-context 4096`.
+
+CUDA uses `prepare-maya-cuda`. GPU-free `prepare-maya-tools` config requires
+explicit `--exe /absolute/path/to/maya-ds4`; engine wrappers supply their packaged
+`maya-ds4`. No packing or inference is performed by config generation.
+No model downloads occur. Implicit optional `Engram` directories in/beside the
+model, and `dspark`/`vision` siblings, are currently rejected with an actionable
+error rather than silently included. If present, use an isolated local shard
+folder (manual symlinks are fine); no links or files are created by the wrapper.

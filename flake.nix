@@ -36,17 +36,19 @@
         "${name}-tools" = engine.toolsPackage;
       }) registry;
       preparation = pkgs.lib.concatMapAttrs (name: _: let
-        prepare = executable: import ./runtime/package.nix {
-          inherit pkgs name executable;
+        prepare = backend: executable: import ./runtime/package.nix {
+          inherit pkgs name executable backend;
+          deepseekExecutable = if name == "maya" && executable != null
+            then "${builtins.dirOf executable}/maya-ds4" else null;
           visionExecutable = "${registry.${name}.visionPackage}/bin/${name}-vision";
           src = inputs.${name};
         };
-        rocm = prepare "${engines.${name + "-rocm"}}/bin/${name}";
+        rocm = prepare "hip" "${engines.${name + "-rocm"}}/bin/${name}";
       in {
         "prepare-${name}" = rocm;
         "prepare-${name}-rocm" = rocm;
-        "prepare-${name}-cuda" = prepare "${engines.${name + "-cuda"}}/bin/${name}";
-        "prepare-${name}-tools" = prepare null;
+        "prepare-${name}-cuda" = prepare "cuda" "${engines.${name + "-cuda"}}/bin/${name}";
+        "prepare-${name}-tools" = prepare null null;
       }) registry;
       servers = pkgs.lib.mapAttrs' (name: _: pkgs.lib.nameValuePair "server-${name}"
         (import ./runtime/server.nix { inherit pkgs name; src = inputs.${name}; })) registry;

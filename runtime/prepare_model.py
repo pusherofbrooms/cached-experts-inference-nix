@@ -5,6 +5,7 @@ import json
 from itertools import combinations
 import os
 import re
+import stat
 from pathlib import Path
 import shlex
 import subprocess
@@ -28,6 +29,7 @@ def main(argv=None):
     p.add_argument('action', choices=['pack', 'config'])
     p.add_argument('--pack', required=True, type=absolute)
     p.add_argument('--gguf', required=True, type=absolute)
+    p.add_argument('--family', choices=['native', 'deepseek'], default='native')
     p.add_argument('--force', action='store_true')
     p.add_argument('--compat-bf16', action='store_true')
     p.add_argument('--experts-bin', action='store_true')
@@ -52,6 +54,17 @@ def main(argv=None):
     p.add_argument('--pcie-frac', type=float)
     p.add_argument('--mmap-experts', action=argparse.BooleanOptionalAction, default=None)
     a = p.parse_args(argv)
+    deepseek = a.family == 'deepseek'
+    if deepseek:
+        if a.engine != 'maya':
+            p.error('deepseek is Maya only')
+        for key in ('compat_bf16', 'experts_bin', 'base', 'ple_gguf', 'mmproj',
+                    'vision_model', 'vision_exe', 'vision_device', 'expert_cache',
+                    'expert_profile', 'prefill', 'spec', 'mtp', 'dflash', 'kv',
+                    'adapt_every', 'pcie_frac', 'mmap_experts'):
+            value = getattr(a, key)
+            if value is not None and (value is not False or key == 'mmap_experts'):
+                p.error('--' + key.replace('_', '-') + ' is unsupported for deepseek')
     if any((a.mmproj, a.vision_exe, a.vision_device, a.vision_model)):
         if a.action != 'config':
             p.error('vision options are only supported for config')
@@ -106,7 +119,7 @@ def main(argv=None):
     if a.engine == 'maya' and (a.adapt_every is not None or a.pcie_frac is not None):
         p.error('--adapt-every and --pcie-frac are only configured for Strata')
     manifest = Path(str(a.pack) + '.manifest.json') if a.action == 'pack' else Path(str(a.config) + '.manifest.json') if a.config else None
-    a.exe = a.exe or (absolute(os.environ['PREPARE_' + a.engine.upper() + '_EXE']) if os.environ.get('PREPARE_' + a.engine.upper() + '_EXE') else None)
+    a.exe = a.exe or (absolute(os.environ['PREPARE_' + a.engine.upper() + ('_DS4_EXE' if deepseek else '_EXE')]) if os.environ.get('PREPARE_' + a.engine.upper() + ('_DS4_EXE' if deepseek else '_EXE')) else None)
     if a.action == 'config' and (not a.config or not a.exe):
         p.error('config requires --config and --exe (absolute native executable path)')
     options = {}
@@ -114,7 +127,7 @@ def main(argv=None):
         pack_manifest = Path(str(a.pack) + '.manifest.json')
         if pack_manifest.is_file():
             options = json.loads(pack_manifest.read_text()).get('options', {})
-        if not a.ple_gguf and options.get('ple_gguf'):
+        if not deepseek and not a.ple_gguf and options.get('ple_gguf'):
             a.ple_gguf = absolute(options['ple_gguf'])
     target = a.pack if a.action == 'pack' else a.config
     # Enumerate names without loading weights, and before resolving symlinks:
@@ -122,6 +135,8 @@ def main(argv=None):
     siblings = list(a.gguf.parent.glob('*.gguf'))
     protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe, a.vision_model, a.dflash] + siblings
     directories = [a.base] if a.base and a.base.is_dir() else []
+    if deepseek:
+        directories += [a.gguf.parent] + [path.resolve().parent for path in siblings]
     if a.mtp:
         directories.append(a.mtp)
     if a.action == 'config':
@@ -154,6 +169,17 @@ def main(argv=None):
             p.error('output collides with an input or input directory')
     if a.max_context < 1:
         p.error('--max-context must be positive')
+    if deepseek and a.action == 'pack':
+        def check_pack_entry(path):
+            info = path.lstat()
+            if stat.S_ISLNK(info.st_mode) or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
+                p.error(f'existing DeepSeek pack contains a symlink or hard-linked file: {path}')
+            if stat.S_ISDIR(info.st_mode):
+                for child in path.iterdir():
+                    check_pack_entry(child)
+
+        if a.pack.exists() or a.pack.is_symlink():
+            check_pack_entry(a.pack)
     if not a.force and (target.exists() or manifest.exists()):
         p.error('output already exists; use --force to permit overwriting')
     if a.engine == 'maya':
@@ -166,33 +192,49 @@ def main(argv=None):
             paths = [a.gguf.with_name(a.gguf.name[:match.start()] +
                      '-%05d-of-%05d.gguf' % (i, total)) for i in range(1, total + 1)]
         for shard in paths:
-            visible = a.pack.parent / shard.name
+            visible = shard if deepseek else a.pack.parent / shard.name
             if not shard.is_file() or not visible.is_file() or not aliases(shard, visible):
+                if deepseek:
+                    p.error(f'DeepSeek requires every model shard in the input directory: {shard}. '
+                            'Finish downloading all shards. No files were moved or links created.')
                 p.error(f'Maya requires every model shard beside the pack: {visible} '
                         f'must be a file or symlink to the intended input {shard}. '
                         'Finish downloading all shards; use --pack <model-directory>/pack '
                         'or manually add matching shard symlinks in the pack parent. '
                         'No files were moved or links created.')
+    if deepseek:
+        model_dir = a.gguf.parent.resolve()
+        for path in (model_dir / 'Engram', model_dir.parent / 'Engram',
+                     model_dir.parent / 'dspark', model_dir.parent / 'vision'):
+            if path.exists():
+                p.error(f'unsupported optional DeepSeek input discovery: {path}; '
+                        'use an isolated local shard directory without Engram/dspark/vision siblings')
     if a.action == 'pack':
         if not a.gguf.is_file():
             p.error('--gguf must be a local file; all shards must be beside it')
         source = os.environ.get('PREPARE_' + a.engine.upper() + '_SOURCE')
         if not source:
             p.error('pack requires the packaged upstream source environment')
-        spec = importlib.util.spec_from_file_location('prepare_iq_pack', Path(source) / 'tools/iq_pack.py')
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        model = module.Model(a.gguf)  # upstream validates every sibling shard
-        if a.engine == 'strata' and not a.ple_gguf:
-            a.ple_gguf = next((path for path, reader in zip(model.paths, model.files)
-                               if any(t.name == 'per_layer_token_embd.weight' for t in reader.tensors)), None)
-        command = [sys.executable, str(Path(source) / 'tools/iq_pack.py'), '--gguf', str(a.gguf), '--out', str(a.pack)]
-        for flag in ('compat_bf16', 'experts_bin'):
-            if getattr(a, flag):
-                command.append('--' + flag.replace('_', '-'))
-        if a.base:
-            command += ['--base', str(a.base)]
-        subprocess.run(command, check=True)
+        if deepseek:
+            command = [sys.executable, str(Path(source) / 'tools/ds4/pack_gguf.py'),
+                       '--model', str(a.gguf.parent), '--out', str(a.pack),
+                       '--shards'] + [path.name for path in paths]
+            subprocess.run(command, check=True)
+        else:
+            spec = importlib.util.spec_from_file_location('prepare_iq_pack', Path(source) / 'tools/iq_pack.py')
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            model = module.Model(a.gguf)  # upstream validates every sibling shard
+            if a.engine == 'strata' and not a.ple_gguf:
+                a.ple_gguf = next((path for path, reader in zip(model.paths, model.files)
+                                   if any(t.name == 'per_layer_token_embd.weight' for t in reader.tensors)), None)
+            command = [sys.executable, str(Path(source) / 'tools/iq_pack.py'), '--gguf', str(a.gguf), '--out', str(a.pack)]
+            for flag in ('compat_bf16', 'experts_bin'):
+                if getattr(a, flag):
+                    command.append('--' + flag.replace('_', '-'))
+            if a.base:
+                command += ['--base', str(a.base)]
+            subprocess.run(command, check=True)
     else:
         # Both pinned serve.server modules consume exe, args, cwd and tokenizer.
         args = (['--glm-pack', str(a.pack)] if a.engine == 'maya' else
@@ -207,8 +249,17 @@ def main(argv=None):
                 args += ['--' + key.replace('_', '-'), str(value)]
         if a.ple_gguf:
             args += ['--ple-gguf', str(a.ple_gguf)]
-        config = {'exe': str(a.exe), 'args': args, 'cwd': str(a.pack.parent),
+        if deepseek:
+            args = ['--pack', str(a.pack), '--max-context', str(a.max_context),
+                    '--vision', 'off', '--dspark', 'none', '--tp', '1']
+            if a.vram_reserve_mib is not None:
+                args += ['--reserve-mib', str(a.vram_reserve_mib)]
+            if not a.pack.is_dir() or not os.access(a.pack, os.W_OK):
+                p.error('deepseek config requires an existing writable --pack for runtime state')
+        config = {'exe': str(a.exe), 'args': args, 'cwd': str(a.pack if deepseek else a.pack.parent),
                   'tokenizer': str(a.pack / 'tokenizer'), 'model_name': a.pack.name}
+        if os.environ.get('PREPARE_BACKEND'):
+            config['backend'] = os.environ['PREPARE_BACKEND']
         if a.mmproj:
             if a.engine == 'strata':
                 args.append('--vision')
