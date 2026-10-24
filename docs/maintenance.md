@@ -25,6 +25,10 @@ nix run .#update-engine -- maya --ref TAG_OR_FULL_COMMIT
 Run inside a Git checkout. The default uses GitHub's latest published stable
 release endpoint, not the highest-looking tag. Exact tags (including annotated
 tags) resolve to commits; `GITHUB_TOKEN` optionally authenticates API requests.
+Engine names are validated against `engines/metadata.json`, not a fixed CLI list.
+Version discovery uses the engine's optional `versionStrategy` (default `cmake`);
+currently only the CMake reader is implemented. Add an explicit reader before
+selecting another strategy; unknown strategies fail rather than guessing.
 The CMake project version is extracted from that commit, not guessed from the
 launcher release tag. Ambiguous/missing project versions require manual review.
 
@@ -36,7 +40,7 @@ constants. Direct Python runtime invocation records `unknown` unless supplied
 with the packaged revision environment; use the Nix app for provenance.
 
 The updater refuses dirty/staged flake.nix, flake.lock or metadata, stages the
-lock operation in a temporary copy, checks that unrelated inputs did not change,
+`nix flake update <engine>` operation in a temporary copy, checks that unrelated inputs did not change,
 and writes only after success (rolling back ordinary write failures). Dry runs
 still access the network/Nix cache but do not modify checkout files. Do not run
 concurrent updates; process termination during final writes is not crash-atomic.
