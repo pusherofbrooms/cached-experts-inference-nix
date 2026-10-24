@@ -3,17 +3,17 @@
     "maya": {
       "flake": false,
       "locked": {
-        "lastModified": 1792711025,
-        "narHash": "sha256-3it+vlvWPd6jYQqNj4kqBHY6aRDnCnkyDbkYWzBWGBU=",
+        "lastModified": 1792783914,
+        "narHash": "sha256-ZdWjz7LzOhTIWk9pQzRfgixNtAoQ50hgvlHVwNvj5ew=",
         "owner": "mw00",
         "repo": "project-maya",
-        "rev": "25deec505b525212e05faa58697d9d2b7d17fdb3",
+        "rev": "f26d8bab43f9b10f0475986b541dc46ada45285e",
         "type": "github"
       },
       "original": {
         "owner": "mw00",
         "repo": "project-maya",
-        "rev": "25deec505b525212e05faa58697d9d2b7d17fdb3",
+        "rev": "f26d8bab43f9b10f0475986b541dc46ada45285e",
         "type": "github"
       }
     },
@@ -43,17 +43,17 @@
     "strata": {
       "flake": false,
       "locked": {
-        "lastModified": 1792573659,
-        "narHash": "sha256-rZqp6GjcaDzwL9FjBxCrh3DNfF8j9QT7S0kN7BVD+vg=",
+        "lastModified": 1792804648,
+        "narHash": "sha256-lfFu7nDXolARbJVhEnOfJGmlRgIdNLHDIpXdL4jDOyI=",
         "owner": "Niko1221",
         "repo": "Strata",
-        "rev": "011c9e600a93bbc9fd451c563501b5831c32bbca",
+        "rev": "96ca4383c7b05a8a3e6064c65d9e9977d4b3bb59",
         "type": "github"
       },
       "original": {
         "owner": "Niko1221",
         "repo": "Strata",
-        "rev": "011c9e600a93bbc9fd451c563501b5831c32bbca",
+        "rev": "96ca4383c7b05a8a3e6064c65d9e9977d4b3bb59",
         "type": "github"
       }
     }

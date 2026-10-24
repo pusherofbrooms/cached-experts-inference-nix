@@ -3,11 +3,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     strata = {
-      url = "github:Niko1221/Strata/011c9e600a93bbc9fd451c563501b5831c32bbca";
+      url = "github:Niko1221/Strata/96ca4383c7b05a8a3e6064c65d9e9977d4b3bb59";
       flake = false;
     };
     maya = {
-      url = "github:mw00/project-maya/25deec505b525212e05faa58697d9d2b7d17fdb3";
+      url = "github:mw00/project-maya/f26d8bab43f9b10f0475986b541dc46ada45285e";
       flake = false;
     };
   };
