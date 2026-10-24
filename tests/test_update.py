@@ -201,3 +201,77 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unsupported version strategy'):
             update.update(self.root, 'maya')
         self.assertEqual(self.snapshot(), before)
+
+
+class MultiUpdateTests(UpdateTests):
+    def setUp(self):
+        super().setUp()
+        self.metadata['engines']['strata'] = {'repo': 'c/d', 'version': '1.1'}
+        self.lock['nodes']['root']['inputs']['strata'] = 'strata'
+        self.lock['nodes']['strata'] = {'locked': {'rev': 'old-strata'}}
+        (self.root / PATHS[2]).write_text(json.dumps(self.metadata))
+        with (self.root / 'flake.nix').open('a') as stream:
+            stream.write('\nstrata = { url = "github:c/d/old"; };')
+        (self.root / 'flake.lock').write_text(json.dumps(self.lock))
+        self.original = self.snapshot()
+
+    def run_command(self, *args, cwd=None):
+        if args[0] == 'git':
+            return ''
+        if args == ('nix', 'flake', 'update', 'maya'):
+            return super().run_command(*args, cwd=cwd)
+        self.assertEqual(args, ('nix', 'flake', 'update', 'strata', 'maya'))
+        self.assertNotEqual(cwd, self.root)
+        lock = copy.deepcopy(self.lock)
+        for engine, rev in [('strata', 'b' * 40), ('maya', REV)]:
+            lock['nodes'][engine]['locked']['rev'] = rev
+        (cwd / 'flake.lock').write_text(json.dumps(lock))
+        self.lock_effect(cwd)
+        return ''
+
+    def combined(self, dry_run=False):
+        with patch.object(update, 'fetch', side_effect=[
+            json.dumps({'tag_name': 'v3'}), 'project(X VERSION 3.0)',
+            json.dumps({'tag_name': 'v2'}), 'project(Y VERSION 2.0)',
+        ]), patch.object(update, 'resolve', side_effect=['b' * 40, REV]):
+            update.update(self.root, ['strata', 'maya'], dry_run=dry_run)
+
+    def test_combined_success(self):
+        self.combined()
+        metadata = json.loads((self.root / PATHS[2]).read_text())
+        for engine, version, rev in [('strata', '3.0', 'b' * 40), ('maya', '2.0', REV)]:
+            self.assertEqual(metadata['engines'][engine]['version'], version)
+            self.assertIn(rev, (self.root / 'flake.nix').read_text())
+            self.assertEqual(json.loads((self.root / 'flake.lock').read_text())['nodes'][engine]['locked']['rev'], rev)
+        self.assertEqual(self.run_mock.call_count, 2)
+
+    def test_combined_dry_run(self):
+        self.combined(dry_run=True)
+        self.assertEqual(self.snapshot(), self.original)
+        self.assertEqual(self.run_mock.call_count, 2)
+
+    def test_second_resolution_failure(self):
+        with patch.object(update, 'fetch', side_effect=[json.dumps({'tag_name': 'v3'}), 'project(X VERSION 3.0)', json.dumps({'tag_name': 'v2'})]), patch.object(update, 'resolve', side_effect=['b' * 40, ValueError('second resolution failed')]):
+            with self.assertRaisesRegex(ValueError, 'second resolution'):
+                update.update(self.root, ['strata', 'maya'])
+        self.assertEqual(self.snapshot(), self.original)
+        self.assertEqual(self.run_mock.call_count, 1)
+
+    def test_combined_lock_failures(self):
+        for target, message in [('other', 'unrelated'), ('strata', 'resolved commit'), ('maya', 'resolved commit')]:
+            def change(stage):
+                lock = json.loads((stage / 'flake.lock').read_text())
+                lock['nodes'][target]['locked']['rev'] = 'wrong'
+                (stage / 'flake.lock').write_text(json.dumps(lock))
+            self.lock_effect = change
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, message):
+                self.combined()
+            self.assertEqual(self.snapshot(), self.original)
+
+    def test_invalid_selections(self):
+        for engines, ref, message in [([], None, 'at least one'), (['maya', 'maya'], None, 'duplicate'), (['maya', 'unknown'], None, 'unknown engine'), (['strata', 'maya'], REV, 'exactly one')]:
+            with self.subTest(engines=engines), patch.object(update, 'fetch') as fetch:
+                with self.assertRaisesRegex(ValueError, message):
+                    update.update(self.root, engines, ref=ref)
+                fetch.assert_not_called()
+                self.assertEqual(self.snapshot(), self.original)

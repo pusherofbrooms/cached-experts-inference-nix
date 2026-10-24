@@ -1,4 +1,4 @@
-"""Update only one literal input and its package version, then lock in staging."""
+"""Update selected literal inputs and package versions transactionally in staging."""
 import argparse
 import json
 import os
@@ -57,41 +57,55 @@ def update(root, engine, ref=None, dry_run=False):
         raise ValueError('refusing to overwrite dirty update files (including staged changes)')
     original = {p: (root / p).read_bytes() for p in paths}
     metadata = json.loads(original[paths[2]])
-    if engine not in metadata['engines']:
-        raise ValueError('unknown engine: ' + engine)
-    entry = metadata['engines'][engine]
-    repo = entry['repo']
-    strategy = entry.get('versionStrategy', 'cmake')
-    if strategy not in VERSION_READERS:
-        raise ValueError('unsupported version strategy: ' + str(strategy))
-    if ref is None:
-        release = json.loads(fetch('https://api.github.com/repos/' + repo + '/releases/latest'))
-        if release.get('draft') or release.get('prerelease'):
-            raise ValueError('latest release is not stable/published')
-        ref = release['tag_name']
-    rev = resolve(repo, ref)
-    version = VERSION_READERS[strategy](repo, rev)
-    entry['version'] = version
+    engines = [engine] if isinstance(engine, str) else list(engine)
+    if not engines:
+        raise ValueError('select at least one engine')
+    if any(not isinstance(name, str) or name not in metadata['engines'] for name in engines):
+        raise ValueError('unknown engine in selection')
+    if len(set(engines)) != len(engines):
+        raise ValueError('duplicate engine selection')
+    if ref is not None and len(engines) != 1:
+        raise ValueError('--ref requires exactly one engine')
     flake = original['flake.nix'].decode()
-    pattern = r'(\b' + re.escape(engine) + r'\s*=\s*\{\s*url\s*=\s*")github:' + re.escape(repo) + r'/[^"\s]+(";)'
-    flake, count = re.subn(pattern, lambda m: m[1] + 'github:' + repo + '/' + rev + m[2], flake)
-    if count != 1:
-        raise ValueError('expected exactly one literal engine input URL')
-    print(f'{engine}: {ref} -> {rev}, version {version}')
+    revisions = {}
+    for engine in engines:
+        entry = metadata['engines'][engine]
+        repo = entry['repo']
+        strategy = entry.get('versionStrategy', 'cmake')
+        if strategy not in VERSION_READERS:
+            raise ValueError('unsupported version strategy: ' + str(strategy))
+        selected_ref = ref
+        if selected_ref is None:
+            release = json.loads(fetch('https://api.github.com/repos/' + repo + '/releases/latest'))
+            if release.get('draft') or release.get('prerelease'):
+                raise ValueError('latest release is not stable/published')
+            selected_ref = release['tag_name']
+        rev = resolve(repo, selected_ref)
+        version = VERSION_READERS[strategy](repo, rev)
+        entry['version'] = version
+        pattern = r'(\b' + re.escape(engine) + r'\s*=\s*\{\s*url\s*=\s*")github:' + re.escape(repo) + r'/[^"\s]+(";)'
+        flake, count = re.subn(pattern, lambda m: m[1] + 'github:' + repo + '/' + rev + m[2], flake)
+        if count != 1:
+            raise ValueError('expected exactly one literal engine input URL')
+        print(f'{engine}: {selected_ref} -> {rev}, version {version}')
+        revisions[engine] = rev
     with tempfile.TemporaryDirectory(prefix='update-engine-') as directory:
         stage = Path(directory) / 'repo'
         shutil.copytree(root, stage, ignore=shutil.ignore_patterns('.git', 'result', '__pycache__'))
         (stage / 'flake.nix').write_text(flake)
         (stage / paths[2]).write_text(json.dumps(metadata, indent=2) + '\n')
-        run('nix', 'flake', 'update', engine, cwd=stage)
+        run('nix', 'flake', 'update', *engines, cwd=stage)
         before = json.loads(original['flake.lock'])
         after = json.loads((stage / 'flake.lock').read_text())
-        node = after['nodes']['root']['inputs'][engine]
-        if after['nodes'][node]['locked']['rev'] != rev:
-            raise ValueError('lock revision does not match resolved commit')
-        old_node = before['nodes']['root']['inputs'][engine]
-        before['nodes'].pop(old_node)
-        after['nodes'].pop(node)
+        for engine, rev in revisions.items():
+            node = after['nodes']['root']['inputs'][engine]
+            if after['nodes'][node]['locked']['rev'] != rev:
+                raise ValueError('lock revision does not match resolved commit: ' + engine)
+        for engine in engines:
+            old_node = before['nodes']['root']['inputs'][engine]
+            node = after['nodes']['root']['inputs'][engine]
+            before['nodes'].pop(old_node)
+            after['nodes'].pop(node)
         if before != after:
             raise ValueError('lock changed unrelated inputs')
         if dry_run:
@@ -110,7 +124,7 @@ def update(root, engine, ref=None, dry_run=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('engine', help='engine name from engines/metadata.json')
+    parser.add_argument('engine', nargs='+', help='engine name from engines/metadata.json')
     parser.add_argument('--ref', help='exact tag or full commit; default: latest stable GitHub release')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()

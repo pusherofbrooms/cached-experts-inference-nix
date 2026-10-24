@@ -17,14 +17,17 @@ compatible models and hardware; build success alone is not runtime validation.
 ## Updating engines
 
 ```sh
-nix run .#update-engine -- strata --dry-run
-nix run .#update-engine -- strata
+nix run .#update-engine -- strata maya --dry-run
+nix run .#update-engine -- strata maya
 nix run .#update-engine -- maya --ref TAG_OR_FULL_COMMIT
 ```
 
 Run inside a Git checkout. The default uses GitHub's latest published stable
 release endpoint, not the highest-looking tag. Exact tags (including annotated
 tags) resolve to commits; `GITHUB_TOKEN` optionally authenticates API requests.
+Select one or more engines for a single transaction; duplicate names are rejected.
+`--ref` requires exactly one engine (multi-engine updates use latest releases).
+The Python API accepts either a single name or a sequence of names.
 Engine names are validated against `engines/metadata.json`, not a fixed CLI list.
 Version discovery uses the engine's optional `versionStrategy` (default `cmake`);
 currently only the CMake reader is implemented. Add an explicit reader before
@@ -40,8 +43,9 @@ constants. Direct Python runtime invocation records `unknown` unless supplied
 with the packaged revision environment; use the Nix app for provenance.
 
 The updater refuses dirty/staged flake.nix, flake.lock or metadata, stages the
-`nix flake update <engine>` operation in a temporary copy, checks that unrelated inputs did not change,
-and writes only after success (rolling back ordinary write failures). Dry runs
+`nix flake update <engine> ...` operation in a temporary copy, checks that unrelated inputs did not change,
+verifies every selected revision,
+and writes all three files only after all resolutions and locking succeed (rolling back ordinary write failures). Dry runs
 still access the network/Nix cache but do not modify checkout files. Do not run
 concurrent updates; process termination during final writes is not crash-atomic.
 No dependency hash is automatically guessed or replaced.
