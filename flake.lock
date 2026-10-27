@@ -43,17 +43,17 @@
     "strata": {
       "flake": false,
       "locked": {
-        "lastModified": 1792804648,
-        "narHash": "sha256-lfFu7nDXolARbJVhEnOfJGmlRgIdNLHDIpXdL4jDOyI=",
+        "lastModified": 1792932996,
+        "narHash": "sha256-HLlmKl+RDIP84KdifVUzduQ+ZN+51DbGaw9t+ITJkm8=",
         "owner": "Niko1221",
         "repo": "Strata",
-        "rev": "96ca4383c7b05a8a3e6064c65d9e9977d4b3bb59",
+        "rev": "4b9e05a2a806a3fe24f7b2560d98626c37dade35",
         "type": "github"
       },
       "original": {
         "owner": "Niko1221",
         "repo": "Strata",
-        "rev": "96ca4383c7b05a8a3e6064c65d9e9977d4b3bb59",
+        "rev": "4b9e05a2a806a3fe24f7b2560d98626c37dade35",
         "type": "github"
       }
     }
