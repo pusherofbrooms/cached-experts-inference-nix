@@ -194,7 +194,8 @@ Strata serving additionally sets `STRATA_NO_ACQUIRE=1`.
 
 On `aarch64-darwin`, `strata` (also `strata-metal` and the flake default),
 `prepare-strata` (also `prepare-strata-metal`) and `server-strata` are available.
-Linux outputs are unchanged. No Maya, ROCm, CUDA, vision or inspection-tools
+`strata-vision-cpu` is also available as a separate encoder package.
+Linux outputs are unchanged. No Maya, ROCm, CUDA, GPU vision or inspection-tools
 packages are exposed on Darwin. The engine builds the separate upstream
 `metal/` project, using Nix's SDK 26 and checksum-verified Apple metal-cpp 26;
 it does not use host Xcode/xcrun, detect hardware, or compile for the build CPU.
@@ -222,12 +223,32 @@ Preparation sidecars record the packaged backend as provenance. Config requires 
 inspect weights. Defaults follow `strata_control/mac_fit.py`: expert cache 64,
 prefill auto, spec 2, and mmap experts (even without `--experts-bin`). Context
 remains 4096. No RAM probing, automatic sizing, acquisition, or MTP is performed.
-`--mtp`, vision options, `--compat-bf16`, `--base`, PCIe/adaptation/VRAM-reserve
-options and `--no-mmap-experts` are rejected. Optional vision, Unsloth repacking,
+`--mtp`, `--vision-model`, `--compat-bf16`, `--base`, PCIe/adaptation/VRAM-reserve
+options and `--no-mmap-experts` are rejected. Unsloth repacking,
 Gyro and MTP acquisition are outside this workflow.
+
+For a matching upstream-supported Qwen vision model/projector, add
+`--mmproj /data/qwen/matching-mmproj.gguf --vision-device cpu` to the config
+command. Preparation uses the packaged `strata-vision-cpu` (or an explicit
+`--vision-exe`), adds native `--vision`, and writes the same HTTP `vision`
+contract described above: first model shard for vocabulary, `gpu: false`, and
+300 image tokens. PLE remains required. Vision flags are config-only; all
+protected-input and output-alias checks still apply. Model/projector compatibility
+is the user's responsibility and is not established by config generation.
+
+The separate CPU encoder uses pinned llama.cpp/mtmd, SDK 26, deployment target
+15.0, and an explicit armv8-a CPU baseline; it has no Metal backend. Upstream's
+optional Metal encoder embeds shader source via generated assembly (rather than
+requiring offline `xcrun metal` compilation). Upstream supports GPU image
+encoding with `strata-vision --gpu`, but this flake deliberately exposes only
+CPU encoding for now. The benefit of GPU encoding for this workflow has not
+been measured; it should be benchmarked before adding another backend. CPU
+encoding can still accompany Metal text inference. No setup/bootstrap script
+is run.
 
 Kernel sources, ggml-common.h and data tables are installed beside the resolved
 engine executable, as required by upstream runtime compilation. Keep the build
 link: generated JSON is not a GC root. Native model-free engine build, frontend
-imports/help and fixture tests were validated on Apple silicon; no Metal model
+imports/help, native CPU encoder build and vision/path-safety fixture tests were
+validated on Apple silicon; no Metal model
 packing, HTTP readiness, inference, quality or performance has been validated.

@@ -132,7 +132,11 @@ class Preparation(unittest.TestCase):
                               '--dflash', str(path)])
                     self.assertIn('--dflash', errors.getvalue())
 
-    def test_vision_config_and_input_protection(self):
+    def test_metal_vision_config_and_input_protection(self):
+        with patch.dict('os.environ', {'PREPARE_BACKEND': 'metal'}):
+            self.test_vision_config_and_input_protection(metal=True)
+
+    def test_vision_config_and_input_protection(self, metal=False):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             model, projector, encoder = (root / n for n in ('model.gguf', 'projector', 'encoder'))
@@ -142,6 +146,10 @@ class Preparation(unittest.TestCase):
             config = root / 'vision.json'
             args = ['strata', 'config', '--pack', str(root / 'pack'), '--gguf', str(model),
                     '--exe', '/bin/engine', '--config', str(config), '--mmproj', str(projector)]
+            if metal:
+                ple = root / 'ple.gguf'
+                ple.write_text('input')
+                args += ['--ple-gguf', str(ple)]
             with patch.dict('os.environ', {'PREPARE_STRATA_VISION_EXE': str(encoder)}):
                 with contextlib.redirect_stdout(io.StringIO()):
                     main(args)
@@ -149,6 +157,15 @@ class Preparation(unittest.TestCase):
                 self.assertEqual(cfg['vision'], {'exe': str(encoder), 'mmproj': str(projector),
                                                 'model': str(model), 'gpu': False, 'max_tokens': 300})
                 self.assertEqual(cfg['args'].count('--vision'), 1)
+                if metal:
+                    self.assertEqual(cfg['backend'], 'metal')
+                    self.assertNotIn('--mtp', cfg['args'])
+                    for extra in (['--mtp', str(model)], ['--vision-device', 'gpu'],
+                                  ['--vision-model', str(model)]):
+                        before = config.read_bytes()
+                        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                            main(args + ['--force'] + extra)
+                        self.assertEqual(config.read_bytes(), before)
                 for source in (projector, encoder):
                     for output in (config, Path(str(config) + '.manifest.json'), Path(str(config) + '.log')):
                         for hardlink in (False, True):

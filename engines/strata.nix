@@ -91,6 +91,10 @@ rec {
     version = metadata.engines.strata.version;
     inherit src;
     nativeBuildInputs = [ pkgs.cmake pkgs.ninja ];
+    # Keep the encoder independent of the Metal text engine/toolchain.
+    buildInputs = lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+      pkgs.apple-sdk_26 (pkgs.darwinMinVersionHook "15.0")
+    ];
     cmakeDir = "../tools/vision";
     cmakeFlags = [
       "-DLLAMA_DIR=${ggml}"
@@ -100,6 +104,8 @@ rec {
       "-DSTRATA_VISION_HIP=OFF"
       "-DSTRATA_VISION_SYCL=OFF"
       "-DSTRATA_VISION_METAL=OFF"
+    ] ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+      "-DGGML_CPU_ARM_ARCH=armv8-a"
     ];
     buildPhase = ''
       runHook preBuild
@@ -115,7 +121,7 @@ rec {
     meta = {
       description = "Strata portable CPU image encoder (no models)";
       license = lib.licenses.mit;
-      platforms = [ "x86_64-linux" ];
+      platforms = [ "x86_64-linux" "aarch64-darwin" ];
       mainProgram = "strata-vision";
     };
   };

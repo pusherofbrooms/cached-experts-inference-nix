@@ -71,13 +71,16 @@
       packages.aarch64-darwin = let
         pkgs = import nixpkgs { system = "aarch64-darwin"; };
         metal = import ./engines/strata-metal.nix { inherit pkgs; src = inputs.strata; };
+        vision = (import ./engines/strata.nix { inherit pkgs; src = inputs.strata; }).visionPackage;
         prepare = import ./runtime/package.nix {
           inherit pkgs; name = "strata"; src = inputs.strata;
           executable = "${metal}/bin/strata"; backend = "metal";
+          visionExecutable = "${vision}/bin/strata-vision";
         };
       in {
         strata = metal;
         strata-metal = metal;
+        strata-vision-cpu = vision;
         default = metal;
         prepare-strata = prepare;
         prepare-strata-metal = prepare;

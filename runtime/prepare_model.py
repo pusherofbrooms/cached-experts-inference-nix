@@ -58,11 +58,10 @@ def main(argv=None):
     if metal:
         if a.engine != 'strata' or a.family != 'native':
             p.error('Metal supports only Strata native IQ preparation')
-        for key in ('compat_bf16', 'base', 'mmproj', 'vision_model', 'vision_exe',
-                    'vision_device', 'mtp', 'dflash', 'vram_reserve_mib',
+        for key in ('compat_bf16', 'base', 'vision_model', 'mtp', 'dflash', 'vram_reserve_mib',
                     'adapt_every', 'pcie_frac'):
             if getattr(a, key) is not None and getattr(a, key) is not False:
-                p.error('--' + key.replace('_', '-') + ' is unsupported for Metal (native IQ text only)')
+                p.error('--' + key.replace('_', '-') + ' is unsupported for Metal (native IQ only)')
         if a.mmap_experts is False:
             p.error('--no-mmap-experts is unsupported for Metal')
         a.mmap_experts = True

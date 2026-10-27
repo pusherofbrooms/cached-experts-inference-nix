@@ -3,9 +3,9 @@
 **Strata and Project Maya, packaged with Nix.** Reproducible, model-free builds
 for **x86_64 Linux**, with ROCm and CUDA text engines, model preparation tools,
 CPU image encoders, and HTTP frontends.
-**Apple silicon macOS 15 or newer** also provides the Strata Metal text engine, native-IQ
-preparation and HTTP frontend; see [Metal workflow](docs/strata.md#apple-silicon-metal).
-Darwin does not expose Maya, ROCm/CUDA, or vision packages.
+**Apple silicon macOS 15 or newer** also provides the Strata Metal engine, native-IQ
+preparation, separate CPU image encoder and HTTP frontend; see [Metal workflow](docs/strata.md#apple-silicon-metal).
+Darwin does not expose Maya, ROCm/CUDA, or GPU vision packages.
 
 These engines run model-specific mixture-of-experts models using expert caches
 across GPU memory, RAM, and storage. They are **not universal GGUF runners**.
