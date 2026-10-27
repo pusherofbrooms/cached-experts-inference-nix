@@ -164,6 +164,8 @@ GPUs or contexts.
 
 ## Further reading
 
+- [Apple silicon testing cookbook](docs/apple-silicon-testing.md): staged M5 checks and opt-in runtime tests.
+
 - [Strata guide](docs/strata.md): native IQ packs, startup defaults, MTP, KV and CPU vision.
 - [Maya guide](docs/maya.md): GLM packs, DeepSeek Flash preparation, KV, DFlash and CPU vision.
 - [Common preparation and troubleshooting](docs/common.md): downloads, backend/tools selection, safety and memory.

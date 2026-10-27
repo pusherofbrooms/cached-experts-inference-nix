@@ -194,6 +194,8 @@ Strata serving additionally sets `STRATA_NO_ACQUIRE=1`.
 
 ## Apple silicon (Metal)
 
+For an ordered M5 validation session, use the [Apple silicon testing cookbook](apple-silicon-testing.md).
+
 On `aarch64-darwin`, `strata` (also `strata-metal` and the flake default),
 `prepare-strata` (also `prepare-strata-metal`) and `server-strata` are available.
 `strata-vision-cpu` is also available as a separate encoder package.
