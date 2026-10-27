@@ -21,7 +21,7 @@ See [Sources and scope](common.md#sources-and-scope).
 
 ## Packaged preparation and configuration
 
-See [Packaged preparation and configuration](common.md#preparation-options-and-safety).
+See [Packaged preparation and configuration](common.md#packaged-preparation-and-configuration).
 
 ## What to expect and verify
 

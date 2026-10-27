@@ -6,7 +6,8 @@ Model downloads and pack creation are **runtime/user operations**, not Nix build
 
 The backend/encoder matrix below describes **x86_64 Linux**. On Apple silicon,
 use the separate [Strata Metal workflow](strata.md#apple-silicon-metal): native
-IQ/Q2_0 text preparation only, without a vision encoder or Linux GPU backends.
+IQ/Q2_0 preparation with an optional separate CPU vision encoder; Linux GPU
+backends are unavailable.
 
 `prepare-<engine>` and `prepare-<engine>-rocm` include only that engine's
 ROCm text engine; `prepare-<engine>-cuda` includes its CUDA text engine instead.
@@ -23,7 +24,8 @@ commands must use `prepare-maya` / `prepare-maya-cuda` instead.
 
 ## Download prerequisites
 
-The downloader is generic Hugging Face tooling, **not** an upstream setup/model-selection replacement. The root flake provides this interface:
+The downloader is generic Hugging Face tooling, **not** an upstream setup/model-selection replacement. On x86_64 Linux, the root flake provides this interface
+(on Darwin, use the explicit [external HF command](strata.md#apple-silicon-metal)):
 
 ```sh
 nix run .#download-model -- REPO DEST [hf download options]

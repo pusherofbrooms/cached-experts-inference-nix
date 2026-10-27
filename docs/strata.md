@@ -90,7 +90,9 @@ Optional: complete the text workflow first.
 
 `strata-vision-cpu` builds the pinned Strata `tools/vision` project against the
 same pinned llama.cpp as the engine. It is independent of Maya and works alongside
-ROCm or CUDA text inference. It requires an AVX2/FMA/F16C/BMI2 CPU. llama/mtmd are
+ROCm or CUDA text inference on Linux, or Metal text inference on Darwin.
+The Linux build requires an AVX2/FMA/F16C/BMI2 CPU; the Darwin build uses
+an armv8-a baseline (see [Metal](#apple-silicon-metal)). llama/mtmd are
 linked into the executable; Nix retains its C/C++ runtime dependencies. The
 server already includes Pillow (image conversion/EXIF orientation), NumPy,
 tokenizers and Jinja2; no pip install or upstream setup is needed.
@@ -205,7 +207,19 @@ target hook raises older defaults to 15.0 without lowering newer targets.
 
 Use an upstream-compatible Qwen native IQ/Q2_0 model with its PLE tensor shard,
 not Unsloth UD weights (which require a separate repack). Download all shards
-explicitly as above, then:
+explicitly. Darwin has no `download-model` app. Use external Hugging Face
+tooling from the pinned nixpkgs input, for example this template (replace the
+repository, revision and quant selection; accept licenses and authenticate first):
+
+```sh
+nix shell --inputs-from . nixpkgs#python3Packages.huggingface-hub -c hf download \
+  OWNER/MODEL-GGUF --local-dir /data/qwen \
+  --revision FULL_HUGGING_FACE_COMMIT --include 'YOUR-QUANT-*.gguf'
+```
+
+Include the required PLE shard explicitly if the selection does not match it.
+This is a user-initiated download, not a build step; see
+[download prerequisites](common.md#download-prerequisites). Once all shards are local:
 
 ```sh
 nix run .#prepare-strata-metal -- strata pack --gguf /data/qwen/first.gguf \

@@ -37,17 +37,20 @@ You only need one engine and one backend to get started.
 
 | Engine | Nix workflow |
 | --- | --- |
-| **Strata** | [Download, pack, and configure](docs/strata.md#pack-and-serve); optional MTP and CPU vision |
-| **Project Maya** | [GLM preparation](docs/maya.md#pack-and-serve) or [DeepSeek Flash preparation](docs/maya.md#deepseek-flash-local-gguf-text-only); separate model-specific paths |
+| **Strata (Linux ROCm/CUDA)** | [Download, pack, and configure](docs/strata.md#pack-and-serve); optional MTP and CPU vision |
+| **Strata (Apple silicon Metal)** | [Acquire, pack, configure and serve](docs/strata.md#apple-silicon-metal); optional CPU vision |
+| **Project Maya (Linux ROCm/CUDA)** | [GLM preparation](docs/maya.md#pack-and-serve) or [DeepSeek Flash preparation](docs/maya.md#deepseek-flash-local-gguf-text-only); separate model-specific paths |
 
 Read [common preparation and safety](docs/common.md) alongside your engine guide.
-The downloader wraps `hf download`; it does not choose a compatible model or
+On Linux, the downloader wraps `hf download`; it does not choose a compatible model or
 quantization for you.
 
-The guides use ROCm preparation packages by default. For CUDA, substitute
+The Linux guides use ROCm preparation packages by default. For CUDA, substitute
 `prepare-strata-cuda` or `prepare-maya-cuda`. Preparation packages supply their
 matching engine automatically—there is no separate engine build required.
-GPU-free preparation is also available; see the package reference below.
+GPU-free preparation is also available on Linux; see the package reference below.
+On Darwin, follow the Metal guide using `prepare-strata-metal`; the same
+`server-strata` frontend serves its generated config.
 
 ### 2. Start the matching HTTP frontend
 
@@ -63,7 +66,7 @@ nix run .#server-maya -- --config /absolute/path/to/maya.json --port 8080
 ```
 
 The config selects the engine executable, so the same frontend package works
-with either ROCm or CUDA. Servers bind to loopback by default. Native engine
+with ROCm, CUDA, or (for Strata on Darwin) Metal. Servers bind to loopback by default. Native engine
 `--serve` is an internal stdin protocol, **not** an HTTP server.
 
 **Allow time for startup:** loading a model can take a minute to several minutes.
@@ -98,7 +101,7 @@ Keep that link while using the config. If you supplied a custom `--exe` or
 architecture settings, regenerate the config with the matching preparation
 package; retain all desired tuning flags when doing so.
 
-## Package reference
+## Linux package reference
 
 Every package below is also available through `nix run .#<name>`.
 
@@ -117,6 +120,22 @@ Preparation packages include only their matching text engine and CPU vision
 encoder. Tools-only preparation variants include the encoder and packing
 dependencies, but build neither a text engine nor a GPU toolkit.
 Legacy `prepare-model` / `prepare-model-cuda` aliases are **Strata-only**.
+
+## Darwin package reference
+
+Apple silicon macOS 15 or newer only; see the [Metal workflow](docs/strata.md#apple-silicon-metal).
+Every package below is also available through `nix run .#<name>`.
+
+| Purpose | Packages/apps |
+| --- | --- |
+| Metal text engine | `strata`, `strata-metal`, flake default |
+| Packing/config | `prepare-strata`, `prepare-strata-metal` |
+| CPU image encoder | `strata-vision-cpu` |
+| HTTP frontend | `server-strata` |
+
+No Maya, Linux GPU backends, inspection/tools-only preparation, `download-model`
+or `update-engine` apps are exposed on Darwin. See the Metal guide for explicit
+external acquisition and [maintenance](docs/maintenance.md) for updater invocation.
 
 ## Validation status
 

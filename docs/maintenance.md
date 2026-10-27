@@ -2,24 +2,46 @@
 
 ## Testing
 
-Run `python3 -m unittest discover -s tests -v`. The flake's
-`checks.x86_64-linux.prepare-model` runs the same suite. Tests cover wrapper
-argument/config generation, path safety, pack orchestration and updater behavior
-using temporary fixtures and mocked external operations; they do not establish
-real model compatibility or inference quality.
+Use pinned Python (the repository dev shell is Linux-only):
 
-The other flake checks build `strata-tools` and `maya-tools` and run each
-packaged HTTP frontend with `--help`, checking for `--config`. These check tool
-builds and frontend imports/CLI availability, not GPU engine execution, actual
-packing, HTTP serving, or text/vision inference. Validate those separately with
-compatible models and hardware; build success alone is not runtime validation.
+```sh
+# Linux:
+nix develop -c python3 -m unittest discover -s tests -v
+# Either platform, including Darwin (avoid an old system Python):
+nix shell --inputs-from . nixpkgs#python3 -c python3 -m unittest discover -s tests -v
+# Darwin's packaged test check:
+nix build .#checks.aarch64-darwin.prepare-model
+```
+
+Both platforms expose a `prepare-model` check running the fixture/mocked suite.
+Tests cover wrapper argument/config generation, path safety, pack orchestration
+and updater behavior; they do not establish real model compatibility or quality.
+
+On Linux, other checks build `strata-tools` and `maya-tools` and exercise both
+HTTP frontends' `--help`. Darwin checks exercise Strata frontend imports/help
+and the Metal environment wrapper contract; there are no Darwin tools checks.
+Run `nix flake show` and `nix flake check --no-build` to inspect/evaluate outputs,
+then `nix flake check` for the current platform's checks. Build selected engine
+and CPU encoder packages separately when appropriate. None of these checks
+proves actual packing, HTTP readiness, or text/vision inference; validate those
+separately with compatible models and hardware.
 
 ## Updating engines
+
+The `update-engine` app is Linux-only:
 
 ```sh
 nix run .#update-engine -- strata maya --dry-run
 nix run .#update-engine -- strata maya
 nix run .#update-engine -- maya --ref TAG_OR_FULL_COMMIT
+```
+
+On Darwin, invoke the same script directly with pinned Python and Git/Nix on PATH
+instead of the unavailable app (these commands access the network):
+
+```sh
+nix shell --inputs-from . nixpkgs#python3 nixpkgs#git -c python3 scripts/update_engine.py strata --dry-run
+nix shell --inputs-from . nixpkgs#python3 nixpkgs#git -c python3 scripts/update_engine.py strata
 ```
 
 Run inside a Git checkout. The default uses GitHub's latest published stable
@@ -54,8 +76,8 @@ Before committing an update:
 - Review the diff and upstream CMake dependency pins; update shared metadata only
   after verifying the archive hash and both engines' dependency compatibility.
 - Review build targets/flags, pack tool CLI and frontend config schema changes.
-- Run Python tests and `nix flake show`; build both tools packages and relevant
-  GPU variants. Test model conversion and inference separately on real hardware.
+- Run Python tests and `nix flake show`; on Linux build both tools packages and relevant
+  GPU variants; on Darwin run its checks and build Strata Metal and its CPU encoder. Test model conversion and inference separately on real hardware.
 - Keep experimental GPU support labels until validated; a release update alone
   does not establish compatibility with existing packs or models.
 

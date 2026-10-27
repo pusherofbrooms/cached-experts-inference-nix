@@ -54,7 +54,8 @@ Keep these responsibilities separate, even if an upstream combines them:
 6. **Validation and documentation:** describe what was built, imported, prepared,
    or executed separately, including hardware/model limits.
 
-The current registry expects ROCm, CUDA, tools, and vision attributes, and the
+The Linux registry expects ROCm, CUDA, tools, and vision attributes; Darwin
+exposes a separate Strata Metal package set. The
 preparation adapter table is not a universal plugin API. When adding an engine,
 make availability/capabilities explicit rather than fabricating unsupported
 backends or forcing every engine into today's pack/config schema. Preserve
@@ -137,12 +138,21 @@ separately. State unsupported capabilities clearly.
 Use the repository toolchain; typical validation commands are:
 
 ```sh
+# Linux dev shell only:
 nix develop -c python3 -m unittest discover -s tests -v
 nix flake show
 nix flake check --no-build
 # Build checks and selected packages when appropriate; GPU builds can be costly.
 nix flake check
 nix build .#<package>
+```
+
+Darwin has no dev shell. Use the pinned Python rather than a potentially old
+system Python:
+
+```sh
+nix shell --inputs-from . nixpkgs#python3 -c python3 -m unittest discover -s tests -v
+nix build .#checks.aarch64-darwin.prepare-model
 ```
 
 The Python suite uses fixtures/mocks. Current frontend checks exercise `--help`
