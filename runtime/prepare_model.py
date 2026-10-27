@@ -54,6 +54,20 @@ def main(argv=None):
     p.add_argument('--pcie-frac', type=float)
     p.add_argument('--mmap-experts', action=argparse.BooleanOptionalAction, default=None)
     a = p.parse_args(argv)
+    metal = os.environ.get('PREPARE_BACKEND') == 'metal'
+    if metal:
+        if a.engine != 'strata' or a.family != 'native':
+            p.error('Metal supports only Strata native IQ preparation')
+        for key in ('compat_bf16', 'base', 'mmproj', 'vision_model', 'vision_exe',
+                    'vision_device', 'mtp', 'dflash', 'vram_reserve_mib',
+                    'adapt_every', 'pcie_frac'):
+            if getattr(a, key) is not None and getattr(a, key) is not False:
+                p.error('--' + key.replace('_', '-') + ' is unsupported for Metal (native IQ text only)')
+        if a.mmap_experts is False:
+            p.error('--no-mmap-experts is unsupported for Metal')
+        a.mmap_experts = True
+        if a.action == 'config' and a.expert_cache is None:
+            a.expert_cache = '64'
     deepseek = a.family == 'deepseek'
     if deepseek:
         if a.engine != 'maya':
@@ -129,6 +143,8 @@ def main(argv=None):
             options = json.loads(pack_manifest.read_text()).get('options', {})
         if not deepseek and not a.ple_gguf and options.get('ple_gguf'):
             a.ple_gguf = absolute(options['ple_gguf'])
+    if metal and a.action == 'config' and not a.ple_gguf:
+        p.error('Metal requires --ple-gguf or PLE recorded by pack preparation')
     target = a.pack if a.action == 'pack' else a.config
     # Enumerate names without loading weights, and before resolving symlinks:
     # shard aliases can point outside the directory containing the supplied GGUF.
@@ -228,6 +244,17 @@ def main(argv=None):
             if a.engine == 'strata' and not a.ple_gguf:
                 a.ple_gguf = next((path for path, reader in zip(model.paths, model.files)
                                    if any(t.name == 'per_layer_token_embd.weight' for t in reader.tensors)), None)
+            if metal:
+                experts = [t for reader in model.files for t in reader.tensors
+                           if t.name.endswith('_exps.weight')]
+                # Locked Metal ref_quant.h/cpp and kernels/quant.metal agree on these formats.
+                supported = {'IQ2_XXS', 'IQ2_XS', 'IQ2_S', 'IQ3_XXS',
+                             'IQ3_S', 'IQ4_NL', 'IQ4_XS', 'Q2_0'}
+                if not experts or any(t.type_name not in supported for t in experts):
+                    p.error('Metal preparation supports native IQ/Q2_0 experts only; '
+                            'Unsloth repacking and other formats are out of scope')
+            if metal and not a.ple_gguf:
+                p.error('Metal native IQ preparation requires a PLE tensor shard')
             command = [sys.executable, str(Path(source) / 'tools/iq_pack.py'), '--gguf', str(a.gguf), '--out', str(a.pack)]
             for flag in ('compat_bf16', 'experts_bin'):
                 if getattr(a, flag):
@@ -280,6 +307,8 @@ def main(argv=None):
     record = {'schema': 1, 'engine_revision': ADAPTERS[a.engine], 'gguf_py_revision': GGML_REV,
               'options': {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()},
               'command': command, 'http_frontend_packaged': True}
+    if os.environ.get('PREPARE_BACKEND'):
+        record['backend'] = os.environ['PREPARE_BACKEND']
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(json.dumps(record, indent=2) + '\n')
 

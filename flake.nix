@@ -68,6 +68,39 @@
         '';
       };
     in {
+      packages.aarch64-darwin = let
+        pkgs = import nixpkgs { system = "aarch64-darwin"; };
+        metal = import ./engines/strata-metal.nix { inherit pkgs; src = inputs.strata; };
+        prepare = import ./runtime/package.nix {
+          inherit pkgs; name = "strata"; src = inputs.strata;
+          executable = "${metal}/bin/strata"; backend = "metal";
+        };
+      in {
+        strata = metal;
+        strata-metal = metal;
+        default = metal;
+        prepare-strata = prepare;
+        prepare-strata-metal = prepare;
+        server-strata = import ./runtime/server.nix { inherit pkgs; name = "strata"; src = inputs.strata; };
+      };
+      apps.aarch64-darwin = nixpkgs.lib.mapAttrs (_: package: {
+        type = "app"; program = nixpkgs.lib.getExe package;
+      }) self.packages.aarch64-darwin;
+      checks.aarch64-darwin = let
+        pkgs = import nixpkgs { system = "aarch64-darwin"; };
+      in {
+        strata-frontend = pkgs.runCommand "strata-frontend-import" {} ''
+          ${self.packages.aarch64-darwin.server-strata}/bin/server-strata --help > "$out"
+          grep -q -- --config "$out"
+        '';
+        prepare-model = pkgs.runCommand "prepare-model-tests" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          cp -r ${./runtime} runtime
+          cp -r ${./tests} tests
+          cp -r ${./scripts} scripts
+          python -m unittest discover -s tests -v
+          touch "$out"
+        '';
+      };
       packages.${system} = engines // preparation // servers // {
         strata-vision-cpu = registry.strata.visionPackage;
         maya-vision-cpu = registry.maya.visionPackage;

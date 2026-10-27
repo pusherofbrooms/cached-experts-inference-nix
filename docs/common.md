@@ -4,6 +4,10 @@ Model downloads and pack creation are **runtime/user operations**, not Nix build
 
 ## Packaged preparation and configuration
 
+The backend/encoder matrix below describes **x86_64 Linux**. On Apple silicon,
+use the separate [Strata Metal workflow](strata.md#apple-silicon-metal): native
+IQ/Q2_0 text preparation only, without a vision encoder or Linux GPU backends.
+
 `prepare-<engine>` and `prepare-<engine>-rocm` include only that engine's
 ROCm text engine; `prepare-<engine>-cuda` includes its CUDA text engine instead.
 Both also supply the matching CPU vision encoder.

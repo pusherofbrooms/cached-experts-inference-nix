@@ -189,3 +189,45 @@ even when text inference uses AMD. GPU vision remains unvalidated; CPU image inf
 (see [status](../README.md#validation-status)). No models are downloaded by builds or preparation;
 Strata serving additionally sets `STRATA_NO_ACQUIRE=1`.
 
+
+## Apple silicon (Metal)
+
+On `aarch64-darwin`, `strata` (also `strata-metal` and the flake default),
+`prepare-strata` (also `prepare-strata-metal`) and `server-strata` are available.
+Linux outputs are unchanged. No Maya, ROCm, CUDA, vision or inspection-tools
+packages are exposed on Darwin. The engine builds the separate upstream
+`metal/` project, using Nix's SDK 26 and checksum-verified Apple metal-cpp 26;
+it does not use host Xcode/xcrun, detect hardware, or compile for the build CPU.
+The minimum deployment target is macOS 15.0 (Apple silicon); SDK 26 is a
+build requirement, not a requirement to run macOS 26. The nixpkgs deployment
+target hook raises older defaults to 15.0 without lowering newer targets.
+
+Use an upstream-compatible Qwen native IQ/Q2_0 model with its PLE tensor shard,
+not Unsloth UD weights (which require a separate repack). Download all shards
+explicitly as above, then:
+
+```sh
+nix run .#prepare-strata-metal -- strata pack --gguf /data/qwen/first.gguf \
+  --pack /data/packs/qwen
+nix run .#prepare-strata-metal -- strata config --gguf /data/qwen/first.gguf \
+  --pack /data/packs/qwen --config /data/qwen-metal.json
+nix run .#server-strata -- --config /data/qwen-metal.json
+nix build .#prepare-strata-metal --out-link result-prepare-strata-metal
+```
+
+Packing uses shared `tools/iq_pack.py` and requires PLE. Expert formats are
+explicitly limited to `IQ2_XXS`, `IQ2_XS`, `IQ2_S`, `IQ3_XXS`, `IQ3_S`,
+`IQ4_NL`, `IQ4_XS`, and `Q2_0`; `IQ1_S`/`IQ1_M` are rejected before packing.
+Preparation sidecars record the packaged backend as provenance. Config requires `--ple-gguf` or the PLE path in the pack sidecar; it does not
+inspect weights. Defaults follow `strata_control/mac_fit.py`: expert cache 64,
+prefill auto, spec 2, and mmap experts (even without `--experts-bin`). Context
+remains 4096. No RAM probing, automatic sizing, acquisition, or MTP is performed.
+`--mtp`, vision options, `--compat-bf16`, `--base`, PCIe/adaptation/VRAM-reserve
+options and `--no-mmap-experts` are rejected. Optional vision, Unsloth repacking,
+Gyro and MTP acquisition are outside this workflow.
+
+Kernel sources, ggml-common.h and data tables are installed beside the resolved
+engine executable, as required by upstream runtime compilation. Keep the build
+link: generated JSON is not a GC root. Native model-free engine build, frontend
+imports/help and fixture tests were validated on Apple silicon; no Metal model
+packing, HTTP readiness, inference, quality or performance has been validated.

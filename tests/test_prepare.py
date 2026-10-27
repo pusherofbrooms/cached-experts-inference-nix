@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from runtime.prepare_model import main, ADAPTERS
 
@@ -15,6 +16,68 @@ class Preparation(unittest.TestCase):
         self.profile.parent.mkdir(parents=True)
         self.profile.write_bytes(b'mock profile')
         self.enterContext(patch.dict('os.environ', {'PREPARE_STRATA_SOURCE': source}))
+
+    def test_metal_pack_contract(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'PREPARE_BACKEND': 'metal'}):
+            root = Path(tmp)
+            model_path = root / 'model.gguf'
+            model_path.touch()
+            args = ['strata', 'pack', '--gguf', str(model_path), '--pack', str(root / 'pack')]
+            expert = SimpleNamespace(name='blk.0.ffn_up_exps.weight', type_name='IQ3_S')
+            ple = SimpleNamespace(name='per_layer_token_embd.weight', type_name='Q2_0')
+            model = SimpleNamespace(paths=[model_path], files=[SimpleNamespace(tensors=[expert, ple])])
+            module = SimpleNamespace(Model=lambda path: model)
+            spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda mod: None))
+            with patch('runtime.prepare_model.importlib.util.spec_from_file_location', return_value=spec), patch(
+                    'runtime.prepare_model.importlib.util.module_from_spec', return_value=module), patch(
+                    'runtime.prepare_model.subprocess.run') as run:
+                main(args)
+                self.assertIn('tools/iq_pack.py', run.call_args.args[0][1])
+                record = json.loads(Path(str(root / 'pack') + '.manifest.json').read_text())
+                self.assertEqual(record['options']['ple_gguf'], str(model_path))
+                self.assertEqual(record['backend'], 'metal')
+                for tensors in ([expert], *([SimpleNamespace(name=expert.name, type_name=kind), ple]
+                                             for kind in ('Q4_K', 'IQ1_S', 'IQ1_M'))):
+                    model.files[0].tensors = tensors
+                    run.reset_mock()
+                    with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                        main(args + ['--force'])
+                    run.assert_not_called()
+
+    def test_metal_config_defaults_and_rejections(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'PREPARE_BACKEND': 'metal'}):
+            root = Path(tmp)
+            config = root / 'run.json'
+            ple = root / 'ple.gguf'
+            ple.touch()
+            args = ['strata', 'config', '--pack', str(root / 'pack'),
+                    '--gguf', str(root / 'model.gguf'), '--exe', '/bin/engine',
+                    '--config', str(config)]
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main(args)
+            self.assertFalse(config.exists())
+            Path(str(root / 'pack') + '.manifest.json').write_text(
+                json.dumps({'options': {'ple_gguf': str(ple)}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(args)
+            result = json.loads(config.read_text())
+            self.assertEqual(result['backend'], 'metal')
+            flags = result['args']
+            for flag, value in (('--expert-cache', '64'), ('--spec', '2'),
+                                ('--prefill', 'auto'), ('--ple-gguf', str(ple))):
+                self.assertEqual(flags[flags.index(flag) + 1], value)
+            self.assertIn('--mmap-experts', flags)
+            self.assertNotIn('--mtp', flags)
+            for extra in (['--compat-bf16'], ['--base', tmp], ['--mtp', tmp],
+                          ['--mmproj', str(ple)], ['--vision-device', 'cpu'],
+                          ['--vram-reserve-mib', '0'], ['--adapt-every', '0'],
+                          ['--pcie-frac', '0'], ['--no-mmap-experts']):
+                before = config.read_bytes()
+                with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(args + ['--force'] + extra)
+                self.assertEqual(config.read_bytes(), before)
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main(args + ['--force', '--ple-gguf', str(config)])
 
     def test_dflash_config_and_input_protection(self):
         with tempfile.TemporaryDirectory() as tmp:

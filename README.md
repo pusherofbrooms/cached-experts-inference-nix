@@ -3,6 +3,9 @@
 **Strata and Project Maya, packaged with Nix.** Reproducible, model-free builds
 for **x86_64 Linux**, with ROCm and CUDA text engines, model preparation tools,
 CPU image encoders, and HTTP frontends.
+**Apple silicon macOS 15 or newer** also provides the Strata Metal text engine, native-IQ
+preparation and HTTP frontend; see [Metal workflow](docs/strata.md#apple-silicon-metal).
+Darwin does not expose Maya, ROCm/CUDA, or vision packages.
 
 These engines run model-specific mixture-of-experts models using expert caches
 across GPU memory, RAM, and storage. They are **not universal GGUF runners**.
@@ -13,7 +16,7 @@ more platforms and workflows than this flake; use the guides here for Nix comman
 
 ## Before you start
 
-- Use **x86_64 Linux** with Nix flakes enabled. Install a working host GPU driver
+- Use **x86_64 Linux** (or **aarch64-darwin** for Strata Metal) with Nix flakes enabled. Install a working host GPU driver
   and ensure your user has device access; this flake does not install drivers.
 - Check [`settings.nix`](settings.nix) before building. Defaults are ROCm
   `gfx1100` (RX 7900 XT/XTX) and CUDA architecture `86`. These are compilation
