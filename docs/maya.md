@@ -178,3 +178,13 @@ Content/model compatibility is not inferred from filenames.
 Check `images: true`, then send a real image using the [Strata image request example](strata.md#strata-images-cpu-encoder)
 with port 8099 and your model name. See [validation status](../README.md#validation-status)
 for build checks and user-reported GLM text and CPU image inference results.
+
+### Release update scope
+
+The current pin is v1.1.33; see the [release review](maintenance.md#stable-release-review-strata-v027--maya-v1133).
+MiniMax remains outside this flake's packaged targets and preparation workflows.
+DeepSeek packing rejects nonempty `deepseek41.engram.file` metadata rather than
+following an implicitly selected extra file, even outside the shard directory.
+Use a supported self-contained shard set; moving it to an isolated folder alone
+does not remove this metadata restriction. No model files are rewritten.
+Maya frontend release polling is disabled; use the Nix updater instead.

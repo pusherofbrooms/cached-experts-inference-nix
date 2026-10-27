@@ -89,3 +89,43 @@ a config argument mapping, wire the engine into the flake registry/packages,
 and add tests for its CLI, layout and safety rules. Review which shared defaults
 actually apply rather than inheriting another engine's model assumptions.
 Document runtime validation separately from automated checks.
+
+## Stable release review: Strata v0.2.7 / Maya v1.1.33
+
+Updated with the documented two-engine dry run, then apply (GitHub latest stable):
+
+| Engine | Previous release / commit | Selected release / commit | CMake version |
+| --- | --- | --- | --- |
+| Strata | v0.2.6 / `4b9e05a2a806a3fe24f7b2560d98626c37dade35` | v0.2.7 / `5e8a4cca7d690ac60ca37eb09e7d0e010099ad6d` | 0.1.51 → 0.1.52 |
+| Maya | v1.1.26 / `f26d8bab43f9b10f0475986b541dc46ada45285e` | v1.1.33 / `88a746c9f94d3c34a9ed31711ecfc64a2f03aa39` | 0.1.27 unchanged |
+
+Reviewed selected-revision CMake/Metal/vision definitions, release changes,
+native IQ and DeepSeek packers, frontend config consumers and runtime entrypoints.
+Both still pin llama.cpp `3cf03257f219afbe7334045ff7c6a06ac68c627d`;
+its hash and nixpkgs are unchanged. Explicit targets, portable CPU flags and
+GPU architecture settings are retained. Maya's new MiniMax target is deliberately
+not built; neither MiniMax preparation nor Strata DeepSeek is added by this update.
+Native IQ packer interfaces are unchanged. Metal's project/resource layout and
+MTP packer remain compatible by source inspection, not a new Darwin build.
+
+Strata includes substantial kernel, serving/tool-call and web UI changes, including
+upstream routing defaults that can change answers on small NVIDIA cards. Maya
+includes DeepSeek kernel/metadata handling and frontend changes since v1.1.26;
+v1.1.33 itself fixes MiniMax setup. Upstream performance claims are not local
+validation. Existing generated configs are not migrated.
+
+Maya's DeepSeek packer newly follows `deepseek41.engram.file` metadata. The
+preparation source copy rejects nonempty values before opening that extra file
+or writing a pack, including relative, parent-relative and absolute paths.
+A header-only regression runs when that source is built. Existing explicit shard
+selection and optional-directory rejection remain in force. Maya frontend release
+polling is disabled with `MAYA_UPDATE_CHECK=0`; updates remain Nix operations
+(the upstream self-update action also requires a supervised Git checkout).
+
+Linux validation: 61 Python fixture tests, `nix flake show`,
+`nix flake check --no-build`, and `nix flake check` passed (both tools packages,
+frontend imports/help and preparation tests). Also built `prepare-maya-tools`
+(including the metadata-discovery regression and Maya CPU encoder) and
+`strata-vision-cpu`. No costly CUDA/ROCm engine builds, Darwin builds, model
+acquisition, real packing, HTTP readiness, inference or performance tests were
+run for these revisions. Earlier runtime reports remain historical.
