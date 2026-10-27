@@ -78,6 +78,66 @@ def validate_metal_mtp(path):
 
 
 
+def validate_deepseek_vision(directory):
+    """Validate tensor ranges, not model compatibility or quality."""
+    blob = directory / 'vision.bin'
+    info = json.loads((directory / 'vision.json').read_text())
+    size = blob.stat().st_size
+    if not blob.is_file() or not size or any(c.isspace() for path in (directory, blob.resolve()) for c in str(path)):
+        raise ValueError('vision.bin must be nonempty; paths cannot contain whitespace')
+    cfg = info['config']
+    def positive(key, default=None):
+        value = cfg.get('vision.' + key, default)
+        if type(value) is not int or value <= 0:
+            raise ValueError('invalid vision geometry: ' + key)
+        return value
+    layers = positive('num_hidden_layers')
+    d = positive('hidden_size', 1024)
+    heads = positive('num_attention_heads', 16)
+    inter = positive('intermediate_size', 2816)
+    patch = positive('patch_size', 14)
+    merge = positive('downsample_ratio', 3)
+    tokens = positive('max_image_tokens', 1024)
+    if (type(cfg.get('image_token_id')) is not int or cfg['image_token_id'] < 0 or
+            d % heads or (d // heads) % 4 or tokens < 5 or
+            max(h * ((tokens - 2) // h - 1) for h in range(1, tokens - 1)) * merge * merge > 10240):
+        raise ValueError('unsupported vision geometry')
+    # Pinned Flash trunk width and ds4_vision.cu's Want table.
+    out = 5120
+    required = {
+        'vision.patch_embed.proj.weight': [d, 3 * patch * patch],
+        'vision.patch_embed.proj.bias': [d], 'vision.norm.weight': [d],
+        'aligner.w1.weight': [out, d * merge * merge], 'aligner.w1.bias': [out],
+        'aligner.w2.weight': [out, out], 'aligner.w2.bias': [out],
+        **{name: [out] for name in ('image_start', 'image_newline', 'image_end')},
+    }
+    for layer in range(layers):
+        for suffix, shape in {
+            'norm1.weight': [d], 'norm2.weight': [d],
+            'attn.wqkv.weight': [3 * d, d], 'attn.wqkv.bias': [3 * d],
+            'attn.wo.weight': [d, d], 'attn.wo.bias': [d],
+            'mlp.w1.weight': [2 * inter, d], 'mlp.w2.weight': [d, inter],
+        }.items():
+            required[f'vision.blocks.{layer}.{suffix}'] = shape
+    seen = set()
+    for name, dtype, offset, length, shape in info['tensors']:
+        if (name in seen or not name.startswith(('vision.', 'aligner.', 'image_')) or
+                dtype != 'BF16' or type(offset) is not int or type(length) is not int or
+                offset < 0 or offset % 256 or length <= 0 or offset + length > size or
+                not shape or any(type(n) is not int or n <= 0 for n in shape)):
+            raise ValueError('invalid vision tensor reference')
+        count = 2
+        for n in shape:
+            count *= n
+        if count != length:
+            raise ValueError('vision tensor shape/size mismatch')
+        if name in required and shape != required[name]:
+            raise ValueError('vision tensor shape does not match geometry')
+        seen.add(name)
+    if not required.keys() <= seen:
+        raise ValueError('missing image marker rows')
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     packaged_engine = os.environ.get('PREPARE_ENGINE')
@@ -88,6 +148,7 @@ def main(argv=None):
     p.add_argument('--pack', required=True, type=absolute)
     p.add_argument('--gguf', required=True, type=absolute)
     p.add_argument('--family', choices=['native', 'deepseek'], default='native')
+    p.add_argument('--deepseek-vision', type=absolute, help='explicit prepared DeepSeek vision directory (pack/config)')
     p.add_argument('--force', action='store_true')
     p.add_argument('--compat-bf16', action='store_true')
     p.add_argument('--experts-bin', action='store_true')
@@ -148,6 +209,13 @@ def main(argv=None):
                         raise ValueError('invalid Qwen draft vocabulary IDs')
             except (OSError, ValueError, UnicodeError) as e:
                 p.error(str(e))
+    if a.deepseek_vision:
+        if a.engine != 'maya' or a.family != 'deepseek':
+            p.error('--deepseek-vision requires Maya --family deepseek')
+        try:
+            validate_deepseek_vision(a.deepseek_vision)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            p.error(f'invalid DeepSeek vision: {e}')
     deepseek = a.family == 'deepseek'
     if deepseek:
         if a.engine != 'maya':
@@ -230,9 +298,14 @@ def main(argv=None):
     # shard aliases can point outside the directory containing the supplied GGUF.
     siblings = list(a.gguf.parent.glob('*.gguf'))
     protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe, a.vision_model, a.dflash] + siblings + mtp_inputs
+    if a.deepseek_vision:
+        protected += [a.deepseek_vision, a.deepseek_vision / 'vision.bin', a.deepseek_vision / 'vision.json']
     directories = [a.base] if a.base and a.base.is_dir() else []
     if deepseek:
         directories += [a.gguf.parent] + [path.resolve().parent for path in siblings]
+    if a.deepseek_vision:
+        directories.append(a.deepseek_vision)
+        directories.extend((a.deepseek_vision / name).resolve().parent for name in ('vision.bin', 'vision.json'))
     if a.mtp:
         directories.append(a.mtp)
     if a.action == 'config':
@@ -302,7 +375,7 @@ def main(argv=None):
         model_dir = a.gguf.parent.resolve()
         for path in (model_dir / 'Engram', model_dir.parent / 'Engram',
                      model_dir.parent / 'dspark', model_dir.parent / 'vision'):
-            if path.exists():
+            if path.exists() and not (path == model_dir.parent / 'vision' and a.deepseek_vision):
                 p.error(f'unsupported optional DeepSeek input discovery: {path}; '
                         'use an isolated local shard directory without Engram/dspark/vision siblings')
     if a.action == 'pack':
@@ -315,6 +388,8 @@ def main(argv=None):
             command = [sys.executable, str(Path(source) / 'tools/ds4/pack_gguf.py'),
                        '--model', str(a.gguf.parent), '--out', str(a.pack),
                        '--shards'] + [path.name for path in paths]
+            if a.deepseek_vision:
+                command += ['--vision', str(a.deepseek_vision)]
             subprocess.run(command, check=True)
         else:
             spec = importlib.util.spec_from_file_location('prepare_iq_pack', Path(source) / 'tools/iq_pack.py')
@@ -357,8 +432,30 @@ def main(argv=None):
         if a.ple_gguf:
             args += ['--ple-gguf', str(a.ple_gguf)]
         if deepseek:
+            if a.deepseek_vision:
+                inventory = a.pack / 'tensors.txt'
+                expected = (a.deepseek_vision / 'vision.bin').resolve()
+                linked = False
+                recorded = {}
+                geometry = a.pack / 'ds4.txt'
+                if geometry.is_file():
+                    recorded = dict(line.split(maxsplit=1) for line in geometry.read_text().splitlines() if len(line.split(maxsplit=1)) == 2)
+                model_dir = Path(recorded.get('model_dir', ''))
+                if not model_dir.is_absolute():
+                    p.error('pack must record an absolute model_dir in ds4.txt')
+                if inventory.is_file():
+                    for line in inventory.read_text().splitlines():
+                        fields = line.split()
+                        if len(fields) == 3 and fields[0] == 'file':
+                            candidate = model_dir / fields[2]
+                            if any(c.isspace() for c in str(candidate)):
+                                p.error('vision inventory paths cannot contain whitespace')
+                            if candidate.is_file() and candidate.samefile(expected):
+                                linked = True
+                if not linked:
+                    p.error('pack does not reference the explicit vision.bin; repack with --deepseek-vision')
             args = ['--pack', str(a.pack), '--max-context', str(a.max_context),
-                    '--vision', 'off', '--dspark', 'none', '--tp', '1']
+                    '--vision', 'on' if a.deepseek_vision else 'off', '--dspark', 'none', '--tp', '1']
             if a.vram_reserve_mib is not None:
                 args += ['--reserve-mib', str(a.vram_reserve_mib)]
             if not a.pack.is_dir() or not os.access(a.pack, os.W_OK):

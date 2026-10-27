@@ -164,3 +164,7 @@ for package versions and the shared llama.cpp dependency.
 - [Strata](https://github.com/Niko1221/Strata): `tools/iq_pack.py`, `tools/_paths.py`, `src/program/generate.cpp`, and `docs/AMD_HIP.md` (model and serving configuration).
 - [Maya](https://github.com/mw00/project-maya): `tools/iq_pack.py`, `tools/strata_tokenizer.py`, `maya.py` (GLM pack construction), `src/program/generate.cpp`, and `docs/AMD_MAYA.md` / `docs/GLM5-FLASH.md`.
 
+
+DeepSeek native GPU vision is an explicit, local-only, separate preparation
+stage; see [Maya DeepSeek vision](maya.md#explicit-deepseek-gpu-vision).
+It is not the GLM CPU encoder workflow. Text-only remains the default.

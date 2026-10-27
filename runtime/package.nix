@@ -53,6 +53,12 @@ in pkgs.writeShellApplication {
     export PREPARE_GGML_REV=${metadata.ggml.rev}
     export STRATA_GGUF_PY=${llama}/gguf-py
     export PYTHONPATH=${llama}/gguf-py
+    ${pkgs.lib.optionalString (name == "maya") ''
+      if [[ "''${1-}" == "--prepare-deepseek-vision" ]]; then
+        shift
+        exec ${python}/bin/python ${./prepare_vision.py} "$@"
+      fi
+    ''}
     exec ${python}/bin/python ${./prepare_model.py} "$@"
   '';
 }

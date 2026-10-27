@@ -38,3 +38,7 @@ See [Maya shard layout and config reruns](maya.md#maya-shard-layout-and-config-r
 ## Config schema and limits
 
 See [Config schema and limits](strata.md#config-schema-and-limits).
+
+DeepSeek native GPU vision is an explicit, local-only, separate preparation
+stage; see [Maya DeepSeek vision](maya.md#explicit-deepseek-gpu-vision).
+It is not the GLM CPU encoder workflow. Text-only remains the default.

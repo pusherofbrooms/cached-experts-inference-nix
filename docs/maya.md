@@ -60,7 +60,7 @@ GLM. This uses `tools/ds4/pack_gguf.py`, not the GLM packer. Numbered siblings
 are selected deterministically from `--gguf`; all must exist. Other GGUFs are
 not included. External packs are supported and must be writable: the runtime
 cwd is the pack itself. Outputs inside input shard directories are rejected,
-even with force. GLM/Strata tuning and vision flags are rejected. Config uses
+even with force. GLM/Strata tuning and encoder flags are rejected. Text config uses
 `--vision off --dspark none --tp 1`; reserve maps to `--reserve-mib`.
 
 For the existing five IQ1_S shards (no quality/compatibility promise):
@@ -97,6 +97,93 @@ No model downloads occur. Implicit optional `Engram` directories in/beside the
 model, and `dspark`/`vision` siblings, are currently rejected with an actionable
 error rather than silently included. If present, use an isolated local shard
 folder (manual symlinks are fine); no links or files are created by the wrapper.
+
+## Explicit DeepSeek GPU vision
+
+DeepSeek uses its **native GPU tower**, not `maya-vision-cpu`, `--mmproj`,
+`--vision-model`, or a GLM frontend encoder. Text-only remains the default.
+Automated validation uses fixtures; the user also reports successful image
+intake on their DeepSeek setup (see validation limits below).
+
+Acquire compatible assets explicitly into writable user storage first, reviewing
+model/accessory licenses: the pinned upstream `tools/ds4/download_gguf.json`
+vision entry identifies checkpoint shard 1 (tower/aligner), `config.json`, and
+checkpoint shard 2 (image marker rows). The preparation command requires **all
+three local files**. It never uses upstream's default HTTP range acquisition.
+If only marker ranges are desired, acquire them separately with an explicitly
+reviewed tool; this wrapper currently requires the local shard 2 file. It reads
+only its header and marker range and verifies marker hashes against the pinned
+manifest. It does not download the checkpoint.
+
+Use the original [DeepSeek checkpoint at the pinned revision](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170),
+not the Maya-XS GGUF directory:
+
+| Required local file | Download size | Purpose |
+| --- | ---: | --- |
+| `config.json` | 3,311 bytes | Vision geometry |
+| `model-00001-of-00048.safetensors` | 970,533,624 bytes | Vision tower and aligner |
+| `model-00002-of-00048.safetensors` | 1,323,858,272 bytes | Three image-marker rows |
+
+Only these three files (about 2.3 GB total) are needed, not the full checkpoint.
+For example, keep them in `~/.local/share/project-maya/dsflash/vision-checkpoint`,
+separate from `models/Maya-XS`, which contains the language model's GGUF shards.
+Use Hugging Face's download buttons or `hf download` at that revision; tiny
+Git LFS/Xet pointer files are not the actual safetensors weights. Shard 1 is
+relatively small because it contains the tower, not the language-model experts.
+Although only 30 KB of marker rows are used, the current local-only interface
+requires the complete shard 2. No GLM projector or vocabulary GGUF is needed.
+
+Set `GGUF` below to your existing DeepSeek first GGUF shard, for example
+`~/.local/share/project-maya/dsflash/models/Maya-XS/DeepSeek-V4.1-Flash-1017-Maya-XS-IQ1_S-00001-of-00005.gguf`.
+
+```sh
+# Fresh output outside all input directories; no overwrite/--force support.
+nix run .#prepare-maya-tools -- --prepare-deepseek-vision \
+  --shard /data/checkpoint/model-00001-of-00048.safetensors \
+  --config /data/checkpoint/config.json \
+  --marks /data/checkpoint/model-00002-of-00048.safetensors \
+  --out /data/prepared/ds-vision
+
+# Choose a NEW pack and config to retain the existing text workflow.
+nix run .#prepare-maya-rocm -- maya pack --family deepseek \
+  --gguf "$GGUF" --pack /data/prepared/ds-image-pack \
+  --deepseek-vision /data/prepared/ds-vision
+nix run .#prepare-maya-rocm -- maya config --family deepseek \
+  --gguf "$GGUF" --pack /data/prepared/ds-image-pack \
+  --config /data/prepared/ds-image.json \
+  --deepseek-vision /data/prepared/ds-vision --max-context 4096
+```
+
+The first stage runs matching upstream `vision_pack.py` in temporary staging,
+readback-checks the copied tower, and publishes `vision.bin`, `vision.json` and a
+sibling provenance manifest. Inputs are never modified. Failed upstream work is
+removed from staging. The pack stage passes explicit `--vision <directory>` to
+`pack_gguf.py`; it validates geometry, BF16 tensor shapes/ranges and marker
+presence before any writes. This is structural validation, not compatibility
+or quality certification. Config requires a pack inventory referencing that
+same `vision.bin` (relative inventory paths resolve against the absolute
+`model_dir` recorded in `pack/ds4.txt`, not the supplied GGUF directory).
+Vision paths, including resolved symlink targets, must contain no whitespace.
+Config emits native `--vision on --dspark none --tp 1`, with no
+frontend `vision` encoder object. Omit `--deepseek-vision` for text-only config;
+it is never inherited from a manifest or discovered from nearby files.
+
+Keep the prepared vision files available: the pack references the original
+`vision.bin`, it does not copy it. Repass the explicit directory for config
+reruns. Input files/directories and their symlink/hard-link aliases are protected
+from config, log, manifest and pack output collisions, including with `--force`.
+Other implicit optional inputs remain rejected. CUDA substitutes
+`prepare-maya-cuda`; tools-only config needs an explicit `--exe` to `maya-ds4`.
+Generated manifests/configs are not GC roots; retain matching packages as in
+[common guidance](common.md). Automated checks cover fixtures, not real
+packing, GPU vision, HTTP image readiness, quality or performance.
+
+The user reports that their DeepSeek setup works for chat and code, including
+working Game of Life code and a coherent creative-writing response. These are
+ad hoc text smoke tests, not a quality benchmark. The user also reports testing
+image intake successfully. This establishes user-reported image handling for
+their setup, not image-understanding accuracy, full-context capacity, CUDA
+support, or a controlled performance result.
 
 ## Optional DFlash
 

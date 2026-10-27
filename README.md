@@ -156,7 +156,9 @@ User-reported runtime validation on **RX 7900 XTX, 24 GB VRAM, approximately
 
 Additional user-reported validation: **Maya DeepSeek-V4.1-Flash Maya-XS IQ1_S**
 packing and ROCm text inference work with a 128K configured context and 2 GiB
-VRAM reserve. Full-context capacity, quality, and performance were not measured.
+VRAM reserve. The user also reports successful image intake with native GPU
+vision. Full-context capacity and image-understanding accuracy were not measured;
+chat/code tests and observed speeds are ad hoc, not controlled benchmarks.
 See the [DeepSeek preparation workflow](docs/maya.md#deepseek-flash-local-gguf-text-only).
 
 These reports do not establish compatibility or performance for other models,
@@ -170,3 +172,8 @@ GPUs or contexts.
 - [Maya guide](docs/maya.md): GLM packs, DeepSeek Flash preparation, KV, DFlash and CPU vision.
 - [Common preparation and troubleshooting](docs/common.md): downloads, backend/tools selection, safety and memory.
 - [Maintenance](docs/maintenance.md): tests, provenance and engine updates.
+
+Optional [DeepSeek native GPU vision preparation](docs/maya.md#explicit-deepseek-gpu-vision)
+requires explicit local checkpoint inputs and prepared vision paths; no downloads
+are implicit. Automated checks use fixtures; successful image intake is separately
+user-reported, not an automated GPU inference check.

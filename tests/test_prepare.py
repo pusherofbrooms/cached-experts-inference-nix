@@ -744,3 +744,150 @@ class DeepSeekPreparation(unittest.TestCase):
                     main(['maya', 'config', '--gguf', str(shard), '--pack', str(root/'pack'),
                           '--config', str(config), '--exe', '/bin/engine', '--force'])
                 self.assertEqual(json.loads(config.read_text())['backend'], backend)
+
+class DeepSeekVisionPreparation(unittest.TestCase):
+    def test_explicit_vision_and_output_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model = root / 'model'
+            model.mkdir()
+            gguf = model / 'model.gguf'
+            gguf.touch()
+            vision = root / 'vision'
+            vision.mkdir()
+            blob = vision / 'vision.bin'
+            shapes = {
+                'vision.patch_embed.proj.weight': [4, 3],
+                'vision.patch_embed.proj.bias': [4], 'vision.norm.weight': [4],
+                'aligner.w1.weight': [5120, 4], 'aligner.w1.bias': [5120],
+                'aligner.w2.weight': [5120, 5120], 'aligner.w2.bias': [5120],
+                **{n: [5120] for n in ('image_start', 'image_newline', 'image_end')},
+            }
+            for suffix, shape in {'norm1.weight': [4], 'norm2.weight': [4],
+                    'attn.wqkv.weight': [12, 4], 'attn.wqkv.bias': [12],
+                    'attn.wo.weight': [4, 4], 'attn.wo.bias': [4],
+                    'mlp.w1.weight': [8, 4], 'mlp.w2.weight': [4, 4]}.items():
+                shapes['vision.blocks.0.' + suffix] = shape
+            info = {'config': {'vision.num_hidden_layers': 1, 'image_token_id': 42,
+                    'vision.hidden_size': 4, 'vision.num_attention_heads': 1,
+                    'vision.intermediate_size': 4, 'vision.patch_size': 1,
+                    'vision.downsample_ratio': 1}, 'tensors': []}
+            import math
+            offset = 0
+            for name, shape in shapes.items():
+                length = 2 * math.prod(shape)
+                info['tensors'].append([name, 'BF16', offset, length, shape])
+                offset = (offset + length + 255) // 256 * 256
+            with blob.open('wb') as f:
+                f.truncate(offset)  # sparse fixture, no model payloads
+            metadata = vision / 'vision.json'
+            metadata.write_text(json.dumps(info))
+            pack = root / 'pack'
+            common = ['--family', 'deepseek', '--gguf', str(gguf), '--pack', str(pack),
+                      '--deepseek-vision', str(vision)]
+            with patch.dict('os.environ', {'PREPARE_MAYA_SOURCE': tmp}), patch('runtime.prepare_model.subprocess.run') as run:
+                main(['maya', 'pack'] + common)
+                self.assertEqual(run.call_args.args[0][-2:], ['--vision', str(vision)])
+            pack.mkdir()
+            (pack / 'ds4.txt').write_text('model_dir ' + str(root / 'recorded') + '\n')
+            (root / 'recorded').mkdir()
+            (pack / 'tensors.txt').write_text('file 0 ../vision/vision.bin\n')
+            config = root / 'run.json'
+            args = ['maya', 'config'] + common + ['--config', str(config), '--exe', '/bin/ds4']
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(args)
+            cfg = json.loads(config.read_text())
+            self.assertEqual(cfg['args'][-6:], ['--vision', 'on', '--dspark', 'none', '--tp', '1'])
+            self.assertNotIn('vision', cfg)  # native GPU tower, not GLM encoder
+            for asset in (blob, metadata):
+                for suffix in ('', '.manifest.json', '.log'):
+                    for hard in (False, True):
+                        alias = root / ('alias.json' + suffix)
+                        if hard:
+                            os.link(asset, alias)
+                        else:
+                            alias.symlink_to(asset)
+                        before = asset.read_bytes()
+                        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                            main(args + ['--config', str(root / 'alias.json'), '--force'])
+                        self.assertEqual(asset.read_bytes(), before)
+                        alias.unlink()
+            from runtime.prepare_model import validate_deepseek_vision
+            import copy
+            malformed = []
+            for key, value in [('vision.hidden_size', 5), ('vision.num_attention_heads', 0),
+                    ('vision.num_hidden_layers', 2), ('vision.max_image_tokens', 4),
+                    ('image_token_id', -1)]:
+                bad = copy.deepcopy(info)
+                bad['config'][key] = value
+                malformed.append(bad)
+            for index in range(len(info['tensors'])):
+                bad = copy.deepcopy(info)
+                del bad['tensors'][index]
+                malformed.append(bad)
+                bad = copy.deepcopy(info)
+                bad['tensors'][index][4] = [bad['tensors'][index][3] // 2, 1]
+                malformed.append(bad)
+            for bad in malformed:
+                metadata.write_text(json.dumps(bad))
+                with self.assertRaises(ValueError):
+                    validate_deepseek_vision(vision)
+            metadata.write_text(json.dumps(info))
+            # A reference valid only relative to the supplied GGUF must fail.
+            (pack / 'tensors.txt').write_text('file 0 vision.bin\n')
+            (model / 'vision.bin').symlink_to(blob)
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main(args + ['--force'])
+            for whitespace in (' ', '\t', '\n', '\r', '\v', '\f'):
+                alias = root / ('vision' + whitespace + 'alias')
+                alias.symlink_to(vision, target_is_directory=True)
+                with self.assertRaises(ValueError):
+                    validate_deepseek_vision(alias)
+            info['tensors'][0][3] = 2048
+            metadata.write_text(json.dumps(info))
+            before = config.read_bytes()
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                main(args + ['--force'])
+            self.assertEqual(config.read_bytes(), before)
+
+    def test_local_vision_stage(self):
+        # Load the standalone entrypoint as packaged (no upstream imports needed).
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('vision_stage', 'runtime/prepare_vision.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inputs = root / 'inputs'
+            inputs.mkdir()
+            paths = [inputs / name for name in ('shard', 'config', 'marks')]
+            for path in paths:
+                path.write_bytes(b'fixture')
+            args = sum(([flag, str(path)] for flag, path in zip(('--shard', '--config', '--marks'), paths)), [])
+            for output in (inputs / 'out', root, paths[0]):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    module.main(args + ['--out', str(output)])
+            # Mock only the upstream packer; verify mandatory local marks and staging.
+            seen = []
+            def pack(stage, man, marks):
+                seen.append(marks)
+                self.assertEqual((stage / 'tower.safetensors').read_bytes(), b'fixture')
+                for name in ('vision.bin', 'vision.json'):
+                    (stage / name).write_bytes(b'packed fixture')
+            upstream = SimpleNamespace(manifest_entry=lambda: {'files': {'tower.safetensors': [7, 'hash']}}, pack=pack)
+            spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _: None))
+            with patch.dict('os.environ', {'PREPARE_MAYA_SOURCE': tmp}), patch.object(module.importlib.util, 'spec_from_file_location', return_value=spec), patch.object(module.importlib.util, 'module_from_spec', return_value=upstream):
+                def fail(stage, man, marks):
+                    (stage / 'vision.bin.part').write_bytes(b'partial')
+                    raise RuntimeError('packer failed')
+                upstream.pack = fail
+                before = set(root.iterdir())
+                with self.assertRaises(RuntimeError):
+                    module.main(args + ['--out', str(root / 'failed')])
+                self.assertEqual(set(root.iterdir()), before)
+                self.assertEqual([path.read_bytes() for path in paths], [b'fixture'] * 3)
+                upstream.pack = pack
+                module.main(args + ['--out', str(root / 'output')])
+            self.assertEqual(seen, [str(paths[2])])
+            self.assertEqual((root / 'output/vision.bin').read_bytes(), b'packed fixture')
+            self.assertTrue(Path(str(root / 'output') + '.manifest.json').is_file())
