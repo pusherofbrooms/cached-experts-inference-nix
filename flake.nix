@@ -92,6 +92,7 @@
       checks.aarch64-darwin = let
         pkgs = import nixpkgs { system = "aarch64-darwin"; };
       in {
+        wrapper-contract = import ./checks/wrapper-contract.nix { inherit pkgs; };
         strata-frontend = pkgs.runCommand "strata-frontend-import" {} ''
           ${self.packages.aarch64-darwin.server-strata}/bin/server-strata --help > "$out"
           grep -q -- --config "$out"

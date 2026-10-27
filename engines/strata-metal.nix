@@ -18,7 +18,7 @@ in pkgs.stdenv.mkDerivation {
   pname = "strata-metal";
   version = metadata.engines.strata.version;
   inherit src;
-  nativeBuildInputs = [ pkgs.cmake pkgs.ninja ];
+  nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.makeWrapper ];
   # metal-cpp 26 uses APIs absent from the default SDK 14. The SDK hook
   # selects the sysroot; never consult the host's xcrun or installed Xcode.
   buildInputs = [ pkgs.apple-sdk_26 (pkgs.darwinMinVersionHook "15.0") ];
@@ -38,7 +38,9 @@ in pkgs.stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p "$out/bin/metal"
-    cp strata "$out/bin/"
+    cp strata "$out/bin/strata-real"
+    makeWrapper "$out/bin/strata-real" "$out/bin/strata" \
+      ${import ../runtime/metal-wrapper.nix { }}
     cp -r ../metal/kernels "$out/bin/metal/"
     cp -r ../metal/src/engine/msl "$out/bin/metal/engine-msl"
     cp ../third_party/ggml/ggml-common.h "$out/bin/metal/"

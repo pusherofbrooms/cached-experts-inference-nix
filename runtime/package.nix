@@ -11,6 +11,7 @@ in pkgs.writeShellApplication {
   name = "prepare-${name}";
   runtimeInputs = [ python ];
   text = ''
+    export PREPARE_MTP_SCHEMA=${./metal_mtp_schema.json}
     export PREPARE_ENGINE=${name}
     ${if backend == null then "unset PREPARE_BACKEND" else "export PREPARE_BACKEND=${backend}"}
     ${if deepseekExecutable == null then "unset ${prefix}_DS4_EXE" else "export ${prefix}_DS4_EXE=${deepseekExecutable}"}

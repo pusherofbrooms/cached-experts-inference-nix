@@ -222,10 +222,43 @@ explicitly limited to `IQ2_XXS`, `IQ2_XS`, `IQ2_S`, `IQ3_XXS`, `IQ3_S`,
 Preparation sidecars record the packaged backend as provenance. Config requires `--ple-gguf` or the PLE path in the pack sidecar; it does not
 inspect weights. Defaults follow `strata_control/mac_fit.py`: expert cache 64,
 prefill auto, spec 2, and mmap experts (even without `--experts-bin`). Context
-remains 4096. No RAM probing, automatic sizing, acquisition, or MTP is performed.
-`--mtp`, `--vision-model`, `--compat-bf16`, `--base`, PCIe/adaptation/VRAM-reserve
+remains 4096. No RAM probing, automatic sizing or acquisition is performed.
+`--vision-model`, `--compat-bf16`, `--base`, PCIe/adaptation/VRAM-reserve
 options and `--no-mmap-experts` are rejected. Unsloth repacking,
 Gyro and MTP acquisition are outside this workflow.
+
+### Opt-in existing MTP assets (Metal)
+
+Config-only `--mtp /data/mtp/rt` enables the pinned **Qwen3.8-Flash-Next**
+MTP contract, not a generic drafter or a Qwen3.6 contract. Supply an existing
+`rt` directory and its sibling `/data/mtp/mtp-q2_0.gguf`, already prepared by
+matching upstream tools. Metal reads that GGUF directly; it does not require
+CUDA's runtime tensor pack. This workflow never fetches or converts MTP assets.
+For example, add `--mtp /data/mtp/rt` to the config command above.
+
+Preparation reads at most 1 MiB of GGUF header (v3, `qwen4exp-mtp`, 31 tensors,
+Q2_0 routed expert shapes/types, F32 norms and BF16 dense tensors). This is a
+format guard, not payload integrity, model pairing, or inference validation.
+Optional `rt/draft_vocab.bin` must contain unique little-endian int32 Qwen token
+IDs in `[0, 248320)`; absent that file, Metal uses the packaged
+`data/draft_vocab.bin`. Both local files are protected against config/manifest/log
+overwrite, including symlink and hardlink aliases and `--force`.
+Do not change assets after validation; regenerate the config when assets change.
+
+Preparation rejects ambient `STRATA_METAL_MTP_GGUF` and
+`STRATA_METAL_DRAFT_VOCAB`. The Darwin HTTP wrapper clears them, and the packaged
+Metal executable wrapper clears them again after upstream merges config `env`
+into its child environment. Thus neither ambient nor config environment values
+can replace validated asset selection when using the packaged executable.
+Custom `--exe` programs are outside this guarantee. Linux MTP semantics are
+unchanged. Without `--mtp`, no drafter is enabled and defaults are unchanged.
+No tuning environment variables are set.
+
+**Untested on M5:** fixtures and model-free builds do not establish MTP loading,
+HTTP readiness, acceptance, quality, speed, or memory fit. No MTP model or
+inference workload has been run; user runtime validation must wait for M5 access.
+Keep the engine and preparation build links as GC roots; config paths alone
+retain neither package. Existing configs/assets are never migrated automatically.
 
 For a matching upstream-supported Qwen vision model/projector, add
 `--mmproj /data/qwen/matching-mmproj.gguf --vision-device cpu` to the config
@@ -252,3 +285,8 @@ link: generated JSON is not a GC root. Native model-free engine build, frontend
 imports/help, native CPU encoder build and vision/path-safety fixture tests were
 validated on Apple silicon; no Metal model
 packing, HTTP readiness, inference, quality or performance has been validated.
+
+MTP header validation checks all 31 pinned names, GGML-order shapes and types
+against the inventory in Strata `4b9e05a` (community RTX 5080 manifest)
+and `tools/mtp_pack.py`. It reads bounded metadata only: payload integrity,
+offsets into real weights, and Metal execution compatibility are not certified.

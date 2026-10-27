@@ -1,6 +1,8 @@
 import contextlib
 import io
 import json
+import os
+import struct
 from pathlib import Path
 import tempfile
 import unittest
@@ -16,6 +18,98 @@ class Preparation(unittest.TestCase):
         self.profile.parent.mkdir(parents=True)
         self.profile.write_bytes(b'mock profile')
         self.enterContext(patch.dict('os.environ', {'PREPARE_STRATA_SOURCE': source}))
+
+    def test_metal_existing_mtp(self):
+        def fixture(path, architecture='qwen4exp-mtp', expert_type=42):
+            def string(text):
+                data = text.encode()
+                return struct.pack('<Q', len(data)) + data
+            data = b'GGUF' + struct.pack('<IQQ', 3, 31, 2)
+            for key, value in (('general.architecture', architecture),
+                               ('strata.mtp.expert_format', 'q2_0')):
+                data += string(key) + struct.pack('<I', 8) + string(value)
+            schema = json.loads(Path('runtime/metal_mtp_schema.json').read_text())
+            tensors = [(name, shape, expert_type if kind == 42 else kind)
+                       for name, (shape, kind) in schema.items()]
+            for name, shape, kind in tensors:
+                data += string(name) + struct.pack('<I', len(shape))
+                data += struct.pack('<' + 'Q' * len(shape), *shape)
+                data += struct.pack('<IQ', kind, 0)
+            path.write_bytes(data)  # Header only: no weights or inference.
+
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'PREPARE_BACKEND': 'metal'}):
+            root = Path(tmp)
+            rt = root / 'assets/rt'
+            rt.mkdir(parents=True)
+            draft = rt.parent / 'mtp-q2_0.gguf'
+            vocab = rt / 'draft_vocab.bin'
+            config = root / 'run.json'
+            ple = root / 'ple.gguf'
+            ple.touch()
+            args = ['strata', 'config', '--pack', str(root / 'pack'), '--gguf', str(ple),
+                    '--ple-gguf', str(ple), '--exe', '/bin/engine', '--config', str(config),
+                    '--mtp', str(rt), '--force']
+            def rejected(command=args):
+                before = config.read_bytes() if config.exists() else None
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    main(command)
+                self.assertEqual(config.read_bytes() if config.exists() else None, before)
+            rejected()  # missing GGUF
+            for architecture, kind in (('llama', 42), ('qwen4exp-mtp', 2)):
+                fixture(draft, architecture, kind)
+                rejected()
+            draft.write_bytes(b'GGUF')
+            rejected()
+            fixture(draft)
+            for optional in (False, True):
+                if optional:
+                    vocab.write_bytes(struct.pack('<ii', 1, 248319))
+                with contextlib.redirect_stdout(io.StringIO()):
+                    main(args)
+                cfg = json.loads(config.read_text())
+                self.assertEqual(cfg['args'][cfg['args'].index('--mtp') + 1], str(rt))
+                self.assertNotIn('env', cfg)
+            for data in (b'x', struct.pack('<i', -1), struct.pack('<i', 248320), struct.pack('<ii', 1, 1)):
+                vocab.write_bytes(data)
+                rejected()
+            vocab.write_bytes(struct.pack('<i', 1))
+            for key in ('STRATA_METAL_MTP_GGUF', 'STRATA_METAL_DRAFT_VOCAB'):
+                with patch.dict('os.environ', {key: '/unvalidated'}):
+                    rejected()
+            # All outputs, including log/manifest aliases, protect both assets.
+            for asset in (draft, vocab):
+                for suffix in ('', '.manifest.json', '.log'):
+                    for hard in (False, True):
+                        out = root / ('alias.json' + suffix)
+                        if hard:
+                            os.link(asset, out)
+                        else:
+                            out.symlink_to(asset)
+                        before = asset.read_bytes()
+                        rejected(args + ['--config', str(root / 'alias.json')])
+                        self.assertEqual(asset.read_bytes(), before)
+                        out.unlink()
+            # Input aliases can live outside the assets directory too.
+            for asset in (draft, vocab):
+                original = asset.read_bytes()
+                external = root / 'external-input'
+                external.write_bytes(original)
+                for hard in (False, True):
+                    asset.unlink()
+                    if hard:
+                        os.link(external, asset)
+                    else:
+                        asset.symlink_to(external)
+                    rejected(args + ['--config', str(external)])
+                asset.unlink()
+                asset.write_bytes(original)
+                external.unlink()
+            # Malicious lengths are bounded before attempting large reads.
+            draft.write_bytes(b'GGUF' + struct.pack('<IQQQ', 3, 31, 1, 2**40))
+            rejected()
+            fixture(draft)
+            rejected(args + ['--config', str(rt / 'nested.json')])
+            rejected(['strata', 'pack', '--gguf', str(ple), '--pack', str(root / 'newpack'), '--mtp', str(rt)])
 
     def test_metal_pack_contract(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'PREPARE_BACKEND': 'metal'}):

@@ -6,6 +6,7 @@ from itertools import combinations
 import os
 import re
 import stat
+import struct
 from pathlib import Path
 import shlex
 import subprocess
@@ -18,6 +19,63 @@ ADAPTERS = {name: os.environ.get(f'PREPARE_{name.upper()}_REV', 'unknown')
 
 def absolute(value):
     return Path(os.path.abspath(os.path.expanduser(value)))
+
+
+def validate_metal_mtp(path):
+    """Read bounded GGUF metadata only, never tensor payloads (pinned Qwen MTP)."""
+    if not path.is_file():
+        raise ValueError('MTP GGUF must be an existing local file')
+    with path.open('rb') as f:
+        def read(n):
+            if n > 65536 or f.tell() + n > 1048576:
+                raise ValueError('MTP GGUF header exceeds limits')
+            data = f.read(n)
+            if len(data) != n:
+                raise ValueError('truncated MTP GGUF header')
+            return data
+
+        def number(fmt):
+            return struct.unpack('<' + fmt, read(struct.calcsize(fmt)))[0]
+
+        def string():
+            return read(number('Q')).decode('utf-8')
+
+        if read(4) != b'GGUF' or number('I') != 3:
+            raise ValueError('MTP requires GGUF v3')
+        tensors, entries = number('Q'), number('Q')
+        if tensors != 31 or entries > 128:
+            raise ValueError('expected pinned Qwen 31-tensor MTP header')
+        metadata = {}
+        for _ in range(entries):
+            key, kind = string(), number('I')
+            if key in metadata:
+                raise ValueError('duplicate MTP metadata')
+            if kind == 8:
+                metadata[key] = string()
+            elif kind == 4:
+                metadata[key] = number('I')
+            else:
+                raise ValueError('unsupported MTP metadata type')
+        if (metadata.get('general.architecture') != 'qwen4exp-mtp' or
+                metadata.get('strata.mtp.expert_format') != 'q2_0'):
+            raise ValueError('expected Qwen qwen4exp-mtp q2_0 assets')
+        # Pinned mtp_fetch inventory + mtp_pack's reversed GGML dimensions/types.
+        schema = json.loads(Path(os.environ.get('PREPARE_MTP_SCHEMA', Path(__file__).with_name('metal_mtp_schema.json'))).read_text())
+        seen = set()
+        for _ in range(tensors):
+            name, dims = string(), number('I')
+            if name not in schema or name in seen or dims != len(schema[name][0]):
+                raise ValueError('invalid Qwen MTP tensor header')
+            seen.add(name)
+            shape = tuple(number('Q') for _ in range(dims))
+            kind, offset = number('I'), number('Q')
+            if not all(shape) or offset % 32:
+                raise ValueError('invalid MTP shape/offset')
+            if (shape, kind) != (tuple(schema[name][0]), schema[name][1]):
+                raise ValueError('unexpected pinned Qwen MTP tensor shape/type')
+        if seen != schema.keys():
+            raise ValueError('incomplete Qwen MTP schema')
+
 
 
 def main(argv=None):
@@ -58,7 +116,7 @@ def main(argv=None):
     if metal:
         if a.engine != 'strata' or a.family != 'native':
             p.error('Metal supports only Strata native IQ preparation')
-        for key in ('compat_bf16', 'base', 'vision_model', 'mtp', 'dflash', 'vram_reserve_mib',
+        for key in ('compat_bf16', 'base', 'vision_model', 'dflash', 'vram_reserve_mib',
                     'adapt_every', 'pcie_frac'):
             if getattr(a, key) is not None and getattr(a, key) is not False:
                 p.error('--' + key.replace('_', '-') + ' is unsupported for Metal (native IQ only)')
@@ -67,6 +125,29 @@ def main(argv=None):
         a.mmap_experts = True
         if a.action == 'config' and a.expert_cache is None:
             a.expert_cache = '64'
+    mtp_inputs = []
+    if metal:
+        for key in ('STRATA_METAL_MTP_GGUF', 'STRATA_METAL_DRAFT_VOCAB'):
+            if key in os.environ:
+                p.error(f'{key} is unsupported; use validated --mtp assets')
+        if a.mtp:
+            if a.action != 'config' or a.mtp.name != 'rt':
+                p.error('Metal --mtp is config-only and must name <assets>/rt')
+            draft = a.mtp.parent / 'mtp-q2_0.gguf'
+            vocab = a.mtp / 'draft_vocab.bin'
+            mtp_inputs = [draft, vocab]
+            try:
+                validate_metal_mtp(draft)
+                if vocab.exists() or vocab.is_symlink():
+                    size = vocab.stat().st_size
+                    if not vocab.is_file() or not 0 < size <= 248320 * 4 or size % 4:
+                        raise ValueError('invalid draft vocabulary size')
+                    with vocab.open('rb') as f:
+                        ids = struct.unpack('<' + 'i' * (size // 4), f.read(size))
+                    if len(set(ids)) != len(ids) or any(i < 0 or i >= 248320 for i in ids):
+                        raise ValueError('invalid Qwen draft vocabulary IDs')
+            except (OSError, ValueError, UnicodeError) as e:
+                p.error(str(e))
     deepseek = a.family == 'deepseek'
     if deepseek:
         if a.engine != 'maya':
@@ -148,7 +229,7 @@ def main(argv=None):
     # Enumerate names without loading weights, and before resolving symlinks:
     # shard aliases can point outside the directory containing the supplied GGUF.
     siblings = list(a.gguf.parent.glob('*.gguf'))
-    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe, a.vision_model, a.dflash] + siblings
+    protected = [a.gguf, a.gguf.parent, a.exe, a.ple_gguf, a.base, a.mtp, a.expert_profile, a.mmproj, a.vision_exe, a.vision_model, a.dflash] + siblings + mtp_inputs
     directories = [a.base] if a.base and a.base.is_dir() else []
     if deepseek:
         directories += [a.gguf.parent] + [path.resolve().parent for path in siblings]
