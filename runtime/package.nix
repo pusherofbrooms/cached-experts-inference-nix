@@ -6,7 +6,7 @@ let
     hash = metadata.ggml.hash;
   };
   python = pkgs.python3.withPackages (p: [ p.numpy p.regex p.pyyaml p.tqdm p.sentencepiece p.protobuf ]);
-  # Maya 1.1.33 can follow arbitrary engram.file metadata outside --shards.
+  # Maya's DeepSeek packer can follow arbitrary engram.file metadata outside --shards.
   # Keep the explicit-input contract; reject before opening it or writing a pack.
   preparationSource = if name != "maya" then src else pkgs.runCommand "maya-preparation-source" {
     nativeBuildInputs = [ pkgs.python3 ];

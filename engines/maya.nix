@@ -129,6 +129,7 @@ let
       "-DSTRATA_NATIVE_EXPERTS=ON"
       "-DSTRATA_PORTABLE=ON" # AVX2 baseline, not build-host CPU detection.
       "-DSTRATA_BUILD_TESTS=OFF"
+      "-DMAYA_BUILD_ID=${src.rev}"
       "-DCMAKE_CUDA_ARCHITECTURES=86"
       "-DCMAKE_CUDA_RUNTIME_LIBRARY=Shared"
       "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"

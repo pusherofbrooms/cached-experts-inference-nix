@@ -10,7 +10,9 @@ point it to `maya` for GLM or `maya-ds4` for DeepSeek.
 
 This is the native GLM path. Obtain all compatible GGUF shards first; see
 [download prerequisites](common.md#download-prerequisites) and upstream model
-guidance. Keep the pack beside the shards as described below.
+guidance. Keep the pack beside the shards as described below. Although Maya
+v1.1.41 upstream also recognizes Qwen models, this adapter deliberately rejects
+them because its pack/config and drafting contract has not been integrated.
 
 ```sh
 # Maya GLM-5.3-Flash (not DeepSeek or EXL3).
@@ -23,8 +25,9 @@ nix run .#server-maya -- --config /data/glm.json
 ```
 
 
-Maya configs use `--glm-pack`. For GLM, effective KV modes are **fp16 and int8
-only**. The wrapper also accepts `q4_0` and `k8v4`, but those are not effective
+Maya configs use `--glm-pack`. Packs created by this wrapper record and enforce
+the GLM architecture on later config generation. For GLM, effective KV modes
+are **fp16 and int8 only**. The wrapper also accepts `q4_0` and `k8v4`, but those are not effective
 GLM KV modes; use `--kv int8` explicitly when desired. Maya receives neither
 Strata’s spec/prefill defaults nor its expert-profile defaults.
 
@@ -41,9 +44,10 @@ The wrapper does not move files or create symlinks.
 
 Both Maya pack and config check this layout before changing outputs, including
 with `--force`. Unlike Strata config, Maya config requires existing shards;
-it cannot generate a config for nonexistent future download paths. This is a
-filename/existence/identity check, not GGUF content or pack compatibility
-validation. Config still inherits packing options (such as `experts_bin`) from
+it cannot generate a config for nonexistent future download paths. The wrapper
+also reads the bounded GGUF header to require the supported GLM architecture;
+it does not validate tensors, pack compatibility or model quality. Config still
+inherits packing options (such as `experts_bin`) from
 the pack manifest when present; that manifest does not replace layout checks.
 
 Adding layout symlinks needs **no repack**. Rerun only `maya config` with the
@@ -93,10 +97,12 @@ logs engine stderr to `<config>.log`. To regenerate an existing config, add
 CUDA uses `prepare-maya-cuda`. GPU-free `prepare-maya-tools` config requires
 explicit `--exe /absolute/path/to/maya-ds4`; engine wrappers supply their packaged
 `maya-ds4`. No packing or inference is performed by config generation.
-No model downloads occur. Implicit optional `Engram` directories in/beside the
-model, and `dspark`/`vision` siblings, are currently rejected with an actionable
-error rather than silently included. If present, use an isolated local shard
-folder (manual symlinks are fine); no links or files are created by the wrapper.
+No model downloads occur. Upstream v1.1.41 also adds Maya Metal, model-management
+APIs and parallel serving; this flake does not enable those paths. Implicit optional
+`Engram` directories in/beside the model, and `dspark`/`vision` siblings, are
+currently rejected with an actionable error rather than silently included. If
+present, use an isolated local shard folder (manual symlinks are fine); no links
+or files are created by the wrapper.
 
 ## Explicit DeepSeek GPU vision
 

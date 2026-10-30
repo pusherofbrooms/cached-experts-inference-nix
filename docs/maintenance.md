@@ -90,42 +90,44 @@ and add tests for its CLI, layout and safety rules. Review which shared defaults
 actually apply rather than inheriting another engine's model assumptions.
 Document runtime validation separately from automated checks.
 
-## Stable release review: Strata v0.2.7 / Maya v1.1.33
+## Stable release review: Strata v0.2.8 / Maya v1.1.41
 
 Updated with the documented two-engine dry run, then apply (GitHub latest stable):
 
 | Engine | Previous release / commit | Selected release / commit | CMake version |
 | --- | --- | --- | --- |
-| Strata | v0.2.6 / `4b9e05a2a806a3fe24f7b2560d98626c37dade35` | v0.2.7 / `5e8a4cca7d690ac60ca37eb09e7d0e010099ad6d` | 0.1.51 → 0.1.52 |
-| Maya | v1.1.26 / `f26d8bab43f9b10f0475986b541dc46ada45285e` | v1.1.33 / `88a746c9f94d3c34a9ed31711ecfc64a2f03aa39` | 0.1.27 unchanged |
+| Strata | v0.2.7 / `5e8a4cca7d690ac60ca37eb09e7d0e010099ad6d` | v0.2.8 / `870aedd9e1ebe1c91f94da93b59af17729f6c5c0` | 0.1.52 → 0.1.54 |
+| Maya | v1.1.33 / `88a746c9f94d3c34a9ed31711ecfc64a2f03aa39` | v1.1.41 / `171077787036ccc2784250ca644760f654e8d4a3` | 0.1.27 unchanged |
 
 Reviewed selected-revision CMake/Metal/vision definitions, release changes,
 native IQ and DeepSeek packers, frontend config consumers and runtime entrypoints.
 Both still pin llama.cpp `3cf03257f219afbe7334045ff7c6a06ac68c627d`;
-its hash and nixpkgs are unchanged. Explicit targets, portable CPU flags and
-GPU architecture settings are retained. Maya's new MiniMax target is deliberately
-not built; neither MiniMax preparation nor Strata DeepSeek is added by this update.
-Native IQ packer interfaces are unchanged. Metal's project/resource layout and
-MTP packer remain compatible by source inspection, not a new Darwin build.
+its hash and nixpkgs are unchanged. Existing explicit Linux targets, portable CPU
+flags and configured GPU architectures remain valid. Maya builds now receive the
+locked source revision through `MAYA_BUILD_ID`, so `maya-ds4 --version` does not
+fall back to `unknown` in a source archive.
 
-Strata includes substantial kernel, serving/tool-call and web UI changes, including
-upstream routing defaults that can change answers on small NVIDIA cards. Maya
-includes DeepSeek kernel/metadata handling and frontend changes since v1.1.26;
-v1.1.33 itself fixes MiniMax setup. Upstream performance claims are not local
-validation. Existing generated configs are not migrated.
+Strata v0.2.8 includes kernel, cache-sizing, startup, batching, tool-call and Metal
+correctness changes. The upstream HIP default now builds 16-row windows while CUDA
+remains at 8; this update accepts that upstream default rather than pinning the old
+HIP behavior. Tool-call recovery is also now enabled when omitted. Existing Qwen
+Metal target/resource layout remains compatible and was built on Apple silicon.
+The new separate Strata DeepSeek Metal target and Linux ARM64 outputs are not
+integrated by this release update.
 
-Maya's DeepSeek packer newly follows `deepseek41.engram.file` metadata. The
-preparation source copy rejects nonempty values before opening that extra file
-or writing a pack, including relative, parent-relative and absolute paths.
-A header-only regression runs when that source is built. Existing explicit shard
-selection and optional-directory rejection remain in force. Maya frontend release
-polling is disabled with `MAYA_UPDATE_CHECK=0`; updates remain Nix operations
-(the upstream self-update action also requires a supervised Git checkout).
+Maya v1.1.41 adds Qwen support, experimental Metal, parallel DeepSeek/MiniMax
+serving, model-management APIs, logprobs and stricter browser-origin handling.
+This flake continues to package the existing Linux GLM and DeepSeek targets only;
+model management remains disabled by default and release polling remains disabled
+with `MAYA_UPDATE_CHECK=0`. The native adapter now records the inspected GGUF
+architecture and rejects Qwen before invoking the packer, because its Qwen pack,
+config and drafting contract has not been integrated. The existing explicit
+DeepSeek shard selection and `engram.file`/optional-directory rejection remain in
+force. Maya Metal and MiniMax remain out of scope.
 
-Linux validation: 61 Python fixture tests, `nix flake show`,
-`nix flake check --no-build`, and `nix flake check` passed (both tools packages,
-frontend imports/help and preparation tests). Also built `prepare-maya-tools`
-(including the metadata-discovery regression and Maya CPU encoder) and
-`strata-vision-cpu`. No costly CUDA/ROCm engine builds, Darwin builds, model
-acquisition, real packing, HTTP readiness, inference or performance tests were
-run for these revisions. Earlier runtime reports remain historical.
+Apple-silicon validation: 63 Python fixture tests, `nix flake show`,
+`nix flake check --no-build`, and `nix flake check` passed. `strata-metal` and
+`strata-vision-cpu` both built successfully for aarch64-darwin. No x86_64 Linux
+CUDA/ROCm/tools builds, model acquisition, real packing, HTTP readiness, inference,
+vision quality or performance tests were run for these revisions. Earlier runtime
+reports remain historical.

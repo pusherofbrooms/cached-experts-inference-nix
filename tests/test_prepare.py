@@ -11,6 +11,18 @@ from unittest.mock import patch
 from runtime.prepare_model import main, ADAPTERS
 
 
+def gguf_header(architecture='glm5-next'):
+    def string(value):
+        data = value.encode()
+        return struct.pack('<Q', len(data)) + data
+    return (b'GGUF' + struct.pack('<IQQ', 3, 0, 1) +
+            string('general.architecture') + struct.pack('<I', 8) + string(architecture))
+
+
+def write_gguf(path, architecture='glm5-next'):
+    path.write_bytes(gguf_header(architecture))
+
+
 class Preparation(unittest.TestCase):
     def setUp(self):
         source = self.enterContext(tempfile.TemporaryDirectory())
@@ -177,7 +189,7 @@ class Preparation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             model = root / 'model.gguf'
-            model.touch()
+            write_gguf(model)
             drafter = root / 'drafters' / 'draft.gguf'
             drafter.parent.mkdir()
             drafter.write_bytes(b'drafter input')
@@ -279,6 +291,7 @@ class Preparation(unittest.TestCase):
             model, projector, encoder = (root / n for n in ('model.gguf', 'projector', 'encoder'))
             for path in (model, projector, encoder):
                 path.write_text('input')
+            write_gguf(model)
             encoder.chmod(0o755)
             vocab = root / 'vocab.gguf'
             vocab.write_text('input')
@@ -363,6 +376,8 @@ class Preparation(unittest.TestCase):
                     root = Path(tmp)
                     config = root/'run.json'
                     (root/'model.gguf').touch()
+                    if engine == 'maya':
+                        write_gguf(root/'model.gguf')
                     with contextlib.redirect_stdout(io.StringIO()):
                         main([engine, 'config', '--pack', str(root/'pack'),
                               '--gguf', str(root/'model.gguf'), '--exe', '/bin/engine',
@@ -378,6 +393,8 @@ class Preparation(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp).resolve()
                 (root/'a.gguf').touch()
+                if engine == 'maya':
+                    write_gguf(root/'a.gguf')
                 args = [engine, 'config', '--pack', str(root/'pack'), '--gguf', str(root/'a.gguf'), '--exe', '/bin/engine', '--config', str(root/'run.json')]
                 with contextlib.redirect_stdout(io.StringIO()):
                     main(args)
@@ -505,11 +522,73 @@ class Preparation(unittest.TestCase):
     def test_packer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            (root/'a.gguf').touch()
-            with patch.dict('os.environ', {'PREPARE_MAYA_SOURCE': '/source'}), patch('subprocess.run') as run, patch('runtime.prepare_model.importlib.util.spec_from_file_location'), patch('runtime.prepare_model.importlib.util.module_from_spec'):
-                main(['maya', 'pack', '--pack', str(root/'pack'), '--gguf', str(root/'a.gguf'), '--experts-bin'])
+            gguf = root/'a.gguf'
+            gguf.touch()
+            reader = SimpleNamespace(metadata={'general.architecture': 'glm5-next'})
+            model = SimpleNamespace(where={'tensor': (reader, None, None, gguf)})
+            module = SimpleNamespace(Model=lambda path: model)
+            with patch.dict('os.environ', {'PREPARE_MAYA_SOURCE': '/source'}), patch(
+                    'subprocess.run') as run, patch(
+                    'runtime.prepare_model.importlib.util.spec_from_file_location'), patch(
+                    'runtime.prepare_model.importlib.util.module_from_spec', return_value=module):
+                main(['maya', 'pack', '--pack', str(root/'pack'), '--gguf', str(gguf), '--experts-bin'])
             self.assertIn('/source/tools/iq_pack.py', run.call_args.args[0])
             self.assertIn('--experts-bin', run.call_args.args[0])
+            record = json.loads(Path(str(root/'pack') + '.manifest.json').read_text())
+            self.assertEqual(record['options']['model_architecture'], 'glm5-next')
+
+            reader.metadata['general.architecture'] = 'qwen4exp'
+            qwen_pack = root/'qwen-pack'
+            with patch.dict('os.environ', {'PREPARE_MAYA_SOURCE': '/source'}), patch(
+                    'subprocess.run') as run, patch(
+                    'runtime.prepare_model.importlib.util.spec_from_file_location'), patch(
+                    'runtime.prepare_model.importlib.util.module_from_spec', return_value=module), contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                main(['maya', 'pack', '--pack', str(qwen_pack), '--gguf', str(gguf)])
+            self.assertIn('supports GLM only', errors.getvalue())
+            run.assert_not_called()
+            self.assertFalse(qwen_pack.exists())
+            qwen_manifest = Path(str(qwen_pack) + '.manifest.json')
+            self.assertFalse(qwen_manifest.exists())
+
+            def header(architecture, trailing=False):
+                def string(value):
+                    data = value.encode()
+                    return struct.pack('<Q', len(data)) + data
+                data = (b'GGUF' + struct.pack('<IQQ', 3, 0, 2 if trailing else 1) +
+                        string('general.architecture') + struct.pack('<I', 8) + string(architecture))
+                # Architecture must be acted on without parsing potentially huge tokenizer metadata.
+                return data + (struct.pack('<Q', 2**30) if trailing else b'')
+
+            gguf.write_bytes(header('qwen4exp', trailing=True))
+            config = root/'qwen.json'
+            config_args = ['maya', 'config', '--pack', str(qwen_pack), '--gguf', str(gguf),
+                           '--exe', '/bin/engine', '--config', str(config)]
+            for options, message in ((None, 'requires a readable GLM'), ({}, 'requires a readable GLM'),
+                                     ({'model_architecture': 'qwen4exp'}, 'requires a readable GLM'),
+                                     ({'model_architecture': 'glm5-next'}, 'does not match')):
+                if options is None:
+                    qwen_manifest.unlink(missing_ok=True)
+                else:
+                    qwen_manifest.write_text(json.dumps({'options': options}))
+                with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                    main(config_args)
+                self.assertIn(message, errors.getvalue())
+                self.assertFalse(config.exists())
+                self.assertFalse(Path(str(config) + '.manifest.json').exists())
+
+            for malformed in (b'', b'GGUF', gguf_header('llama')):
+                gguf.write_bytes(malformed)
+                qwen_manifest.unlink(missing_ok=True)
+                with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                    main(config_args)
+                self.assertIn('requires a readable GLM', errors.getvalue())
+                self.assertFalse(config.exists())
+
+            gguf.write_bytes(header('glm5next'))
+            qwen_manifest.write_text(json.dumps({'options': {}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                main(config_args)
+            self.assertTrue(config.exists())
 
     def test_runtime_flags_and_manifest(self):
         for engine in ADAPTERS:
@@ -517,6 +596,8 @@ class Preparation(unittest.TestCase):
                 root = Path(tmp)
                 pack = root/'pack'
                 (root/'a.gguf').touch()
+                if engine == 'maya':
+                    write_gguf(root/'a.gguf')
                 Path(str(pack) + '.manifest.json').write_text(json.dumps({'options': {'experts_bin': True}}))
                 argv = [engine, 'config', '--pack', str(pack), '--gguf', str(root/'a.gguf'),
                         '--exe', '/bin/engine', '--config', str(root/'run.json'),
@@ -611,9 +692,9 @@ class Preparation(unittest.TestCase):
                     inputs.mkdir()
                     first = inputs/'model-00001-of-00002.gguf'
                     second = inputs/'model-00002-of-00002.gguf'
-                    first.touch()
+                    write_gguf(first)
                     if layout != 'missing':
-                        second.touch()
+                        write_gguf(second)
                     parent = inputs
                     if layout in ('wrong', 'symlink'):
                         parent = root/'layout'
@@ -737,7 +818,7 @@ class DeepSeekPreparation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             shard = root/'model.gguf'
-            shard.touch()
+            write_gguf(shard)
             config = root/'run.json'
             for backend in ('hip', 'cuda'):
                 with patch.dict('os.environ', {'PREPARE_BACKEND': backend}), contextlib.redirect_stdout(io.StringIO()):

@@ -21,6 +21,64 @@ def absolute(value):
     return Path(os.path.abspath(os.path.expanduser(value)))
 
 
+def read_gguf_architecture(path):
+    """Return general.architecture from a bounded GGUF header, or None if malformed."""
+    try:
+        with path.open('rb') as f:
+            def read(n):
+                if n < 0 or n > 16777216 or f.tell() + n > 16777216:
+                    raise ValueError('GGUF header exceeds limits')
+                data = f.read(n)
+                if len(data) != n:
+                    raise ValueError('truncated GGUF header')
+                return data
+
+            def number(fmt):
+                return struct.unpack('<' + fmt, read(struct.calcsize(fmt)))[0]
+
+            def string():
+                return read(number('Q')).decode('utf-8')
+
+            sizes = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4,
+                     7: 1, 10: 8, 11: 8, 12: 8}
+
+            def value(kind, wanted=False):
+                if kind == 8:
+                    text = string()
+                    return text if wanted else None
+                if kind == 9:
+                    element, count = number('I'), number('Q')
+                    if count > 1048576:
+                        raise ValueError('GGUF metadata array exceeds limits')
+                    if element in sizes:
+                        read(sizes[element] * count)
+                    elif element == 8:
+                        for _ in range(count):
+                            string()
+                    else:
+                        raise ValueError('unsupported GGUF metadata array')
+                    return None
+                if kind not in sizes:
+                    raise ValueError('unsupported GGUF metadata type')
+                read(sizes[kind])
+                return None
+
+            if read(4) != b'GGUF' or number('I') not in (2, 3):
+                return None
+            number('Q')  # tensor count
+            entries = number('Q')
+            if entries > 65536:
+                return None
+            for _ in range(entries):
+                key, kind = string(), number('I')
+                result = value(kind, key == 'general.architecture')
+                if result is not None:
+                    return result
+            return None
+    except (OSError, UnicodeError, ValueError, struct.error):
+        return None
+
+
 def validate_metal_mtp(path):
     """Read bounded GGUF metadata only, never tensor payloads (pinned Qwen MTP)."""
     if not path.is_file():
@@ -173,6 +231,7 @@ def main(argv=None):
     p.add_argument('--pcie-frac', type=float)
     p.add_argument('--mmap-experts', action=argparse.BooleanOptionalAction, default=None)
     a = p.parse_args(argv)
+    a.model_architecture = None
     metal = os.environ.get('PREPARE_BACKEND') == 'metal'
     if metal:
         if a.engine != 'strata' or a.family != 'native':
@@ -289,6 +348,14 @@ def main(argv=None):
         pack_manifest = Path(str(a.pack) + '.manifest.json')
         if pack_manifest.is_file():
             options = json.loads(pack_manifest.read_text()).get('options', {})
+        if a.engine == 'maya' and not deepseek:
+            recorded_architecture = options.get('model_architecture')
+            actual_architecture = read_gguf_architecture(a.gguf)
+            if (recorded_architecture and actual_architecture and
+                    recorded_architecture != actual_architecture):
+                p.error('Maya pack manifest architecture does not match the supplied GGUF')
+            if actual_architecture not in ('glm5-next', 'glm5next'):
+                p.error('Maya native configuration requires a readable GLM GGUF header; Qwen is not integrated')
         if not deepseek and not a.ple_gguf and options.get('ple_gguf'):
             a.ple_gguf = absolute(options['ple_gguf'])
     if metal and a.action == 'config' and not a.ple_gguf:
@@ -396,6 +463,12 @@ def main(argv=None):
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             model = module.Model(a.gguf)  # upstream validates every sibling shard
+            if a.engine == 'maya':
+                first = next(iter(model.where.values()), None)
+                if first is not None:
+                    a.model_architecture = str(first[0].metadata.get('general.architecture', ''))
+                    if a.model_architecture not in ('glm5-next', 'glm5next'):
+                        p.error('Maya native preparation supports GLM only; Qwen preparation is not integrated')
             if a.engine == 'strata' and not a.ple_gguf:
                 a.ple_gguf = next((path for path, reader in zip(model.paths, model.files)
                                    if any(t.name == 'per_layer_token_embd.weight' for t in reader.tensors)), None)
