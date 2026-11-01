@@ -90,6 +90,53 @@ and add tests for its CLI, layout and safety rules. Review which shared defaults
 actually apply rather than inheriting another engine's model assumptions.
 Document runtime validation separately from automated checks.
 
+## Stable release review: Strata v0.2.9 / Maya v1.1.48
+
+Updated with the documented two-engine dry run, then apply (GitHub latest stable):
+
+| Engine | Previous release / commit | Selected release / commit | CMake version |
+| --- | --- | --- | --- |
+| Strata | v0.2.8 / `870aedd9e1ebe1c91f94da93b59af17729f6c5c0` | v0.2.9 / `c62d5e3a15b40ea51c96aae9e8d36928965f53ab` | 0.1.54 → 0.1.55 |
+| Maya | v1.1.41 / `171077787036ccc2784250ca644760f654e8d4a3` | v1.1.48 / `465a981579ff5e91b19ff023721c6661f3c6030b` | 0.1.27 unchanged |
+
+Reviewed exact upstream Git revisions, build definitions, dependency pins,
+packers, frontend imports/config consumers and Metal resources. Both retain
+llama.cpp `3cf03257f219afbe7334045ff7c6a06ac68c627d`; its hash and nixpkgs
+are unchanged. Existing explicit production targets remain applicable.
+
+Strata changes include tool-call parsing fixes for Markdown examples and tool
+history, new CUDA parallel/GDN defaults, opt-in replica shared expert memory,
+and Metal GDN/attention/expert kernel and buffer-offset changes. Native IQ and
+MTP packers and the run-config schema are unchanged. Tools-only ROCm configs
+need an explicit `"backend": "hip"`; the regular ROCm wrapper supplies it.
+Upstream DeepSeek improvements do not add a Strata DeepSeek package here.
+
+Maya changes include a DeepSeek expert-cache race fix affecting repeated long
+prompts, prompt/cache restore improvements, gfx11 prefill chunk limits, lower
+idle CPU activity, and fixes to loop-guard continuations, reasoning boundaries,
+client stop strings, multipart content and tool parameters. The frontend now
+normalizes legacy `--engine strata` to Maya; the flake checks this explicitly.
+Upstream model management became default-on: the packaged frontend patches only
+that default back to off, retaining explicit config/environment opt-in, with
+import-level regression checks. Update polling remains disabled.
+
+Maya-XS v2's separate Engram-table shards require a future explicit preparation
+adapter; they are not supported by the existing self-contained-shard workflow.
+New upstream mmproj preparation, Qwen vision and GLM HIP vision do not expand
+this flake's supported workflows. No model acquisition or automatic migration
+was performed. Upstream speed/quality claims are not Nix validation results.
+
+Linux validation: all 63 Python fixture tests, `nix flake show`,
+`nix flake check --no-build`, and `nix flake check` passed. The five Linux checks
+include both tools builds, frontend imports/help, Maya policy/selector assertions,
+and preparation tests. ROCm/CUDA inference binaries, CPU encoders and Darwin
+packages were not built for these revisions. No real packing, HTTP readiness,
+model/GPU execution, vision quality or performance testing was performed by the
+packaging agent. After the update, the user reported that actual inference
+testing passes. Engine/backend, hardware, model/format and runtime options were
+not supplied, so this report does not establish a broader compatibility matrix
+or vision/performance validation.
+
 ## Stable release review: Strata v0.2.8 / Maya v1.1.41
 
 Updated with the documented two-engine dry run, then apply (GitHub latest stable):

@@ -3,11 +3,11 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     strata = {
-      url = "github:Niko1221/Strata/870aedd9e1ebe1c91f94da93b59af17729f6c5c0";
+      url = "github:Niko1221/Strata/c62d5e3a15b40ea51c96aae9e8d36928965f53ab";
       flake = false;
     };
     maya = {
-      url = "github:mw00/project-maya/171077787036ccc2784250ca644760f654e8d4a3";
+      url = "github:mw00/project-maya/465a981579ff5e91b19ff023721c6661f3c6030b";
       flake = false;
     };
   };
@@ -127,6 +127,42 @@
         (pkgs.runCommand "${name}-frontend-import" {} ''
           ${self.packages.${system}."server-${name}"}/bin/server-${name} --help > "$out"
           grep -q -- '--config' "$out"
+          ${pkgs.lib.optionalString (name == "maya") ''
+            export PYTHONPATH=${servers.server-maya.frontendSource}:${servers.server-maya.frontendSource}/tools
+            ${servers.server-maya.python}/bin/python - <<'PY'
+            from unittest.mock import patch
+            from serve import server
+
+            setting = server.model_management_setting
+            assert setting(None, {}) is False
+            assert setting({}, {}) is False
+            assert setting({"model_management": True}, {}) is True
+            assert setting({"model_management": False}, {}) is False
+            for alias in ("MAYA_MODEL_MANAGEMENT", "STRATA_MODEL_MANAGEMENT"):
+                assert setting({}, {alias: "1"}) is True
+                assert setting({"model_management": False}, {alias: "true"}) is True
+                assert setting({"model_management": True}, {alias: "0"}) is False
+
+            # Stop after normalization, before config/model I/O.
+            parsed = None
+            parse_args = server.argparse.ArgumentParser.parse_args
+            def capture(parser):
+                global parsed
+                parsed = parse_args(parser, ["--engine", "strata"])
+                return parsed
+            class StopBeforeIO(Exception):
+                pass
+            with patch.object(server.argparse.ArgumentParser, "parse_args", capture), \
+                 patch.object(server.maya_names, "alias_env", side_effect=StopBeforeIO):
+                try:
+                    server.main()
+                except StopBeforeIO:
+                    pass
+                else:
+                    raise AssertionError("normalization checkpoint not reached")
+            assert parsed.engine == "maya"
+            PY
+          ''}
         '')) registry // {
         prepare-model = pkgs.runCommand "prepare-model-tests" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           cp -r ${./runtime} runtime

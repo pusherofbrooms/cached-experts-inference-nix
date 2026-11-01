@@ -97,8 +97,12 @@ logs engine stderr to `<config>.log`. To regenerate an existing config, add
 CUDA uses `prepare-maya-cuda`. GPU-free `prepare-maya-tools` config requires
 explicit `--exe /absolute/path/to/maya-ds4`; engine wrappers supply their packaged
 `maya-ds4`. No packing or inference is performed by config generation.
-No model downloads occur. Upstream v1.1.41 also adds Maya Metal, model-management
-APIs and parallel serving; this flake does not enable those paths. Implicit optional
+No model downloads occur. Maya Metal and parallel serving are not enabled by
+this flake. The v1.1.48 frontend is patched to keep model-management APIs off by
+default. Explicit `"model_management": true` in the run config or
+`MAYA_MODEL_MANAGEMENT=1` (legacy alias `STRATA_MODEL_MANAGEMENT=1`) opts in.
+Environment settings retain upstream precedence over config; the wrapper does
+not force either model-management environment variable. Implicit optional
 `Engram` directories in/beside the model, and `dspark`/`vision` siblings, are
 currently rejected with an actionable error rather than silently included. If
 present, use an isolated local shard folder (manual symlinks are fine); no links
@@ -274,10 +278,14 @@ for build checks and user-reported GLM text and CPU image inference results.
 
 ### Release update scope
 
-The current pin is v1.1.33; see the [release review](maintenance.md#stable-release-review-strata-v027--maya-v1133).
+The current Maya pin is v1.1.48; see the
+[release review](maintenance.md#stable-release-review-strata-v029--maya-v1148)
+for changes and validation limits.
 MiniMax remains outside this flake's packaged targets and preparation workflows.
 DeepSeek packing rejects nonempty `deepseek41.engram.file` metadata rather than
 following an implicitly selected extra file, even outside the shard directory.
+The new Maya-XS v2 split Engram layout is therefore unsupported by this
+preparation adapter; upstream support does not imply wrapper support.
 Use a supported self-contained shard set; moving it to an isolated folder alone
 does not remove this metadata restriction. No model files are rewritten.
 Maya frontend release polling is disabled; use the Nix updater instead.

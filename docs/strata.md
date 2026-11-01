@@ -3,6 +3,10 @@
 Read [common preparation and safety](common.md) first. Examples use ROCm;
 use `prepare-strata-cuda` for CUDA or `prepare-strata-tools` with an explicit
 `--exe /absolute/bin/strata` for GPU-free preparation.
+For ROCm, tools-only generated configs must manually set `"backend": "hip"`
+before serving: tools-only preparation cannot infer the backend from `--exe`,
+and the frontend uses this field for HIP device handling. The ROCm preparation
+wrapper supplies it automatically. Regeneration replaces manual edits.
 
 ## Pack and serve
 
