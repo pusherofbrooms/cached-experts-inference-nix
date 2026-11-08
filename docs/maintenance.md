@@ -90,6 +90,39 @@ and add tests for its CLI, layout and safety rules. Review which shared defaults
 actually apply rather than inheriting another engine's model assumptions.
 Document runtime validation separately from automated checks.
 
+## Stable release review: Strata v0.2.12 / Maya v1.1.56
+
+Updated using the documented two-engine dry run and apply against GitHub's
+latest stable releases:
+
+| Engine | Previous release | Selected release / commit | CMake version |
+| --- | --- | --- | --- |
+| Strata | v0.2.9 | v0.2.12 / `146df3c468739147f520ac3816de806f71232571` | 0.1.55 → 0.1.58 |
+| Maya | v1.1.48 | v1.1.56 / `22fc101f2c109b7e7174c975ff3c2d8e9ce0a867` | 0.1.27 unchanged |
+
+Reviewed exact source revisions, dependency declarations, packaged targets,
+packer interfaces, frontend configuration and resource lookup. No packaging
+code changes were needed. Both retain llama.cpp
+`3cf03257f219afbe7334045ff7c6a06ac68c627d`; its hash and nixpkgs are unchanged.
+
+Strata retains the native IQ packer and CPU vision interfaces. New optional
+split-engine/benchmark targets are not built by the explicit production target
+selection. Metal DFlash2/kernel changes retain the resource directories copied
+by the package, but were not built on Darwin in this update.
+
+Maya changes GLM routing-bias packing to F32 and some runtime defaults. Existing
+packs are not migrated: see [Maya release scope](maya.md#release-update-scope)
+for explicit repacking guidance and frontend data-persistence changes. New
+upstream model/backend capabilities do not expand this flake's supported scope.
+Acquisition and model-management policies remain unchanged.
+
+Validation passed: 63 Python fixture tests, `nix flake show`,
+`nix flake check --no-build`, `nix flake check`, both Linux tools and frontend
+checks, and both CPU vision packages. All-system no-build evaluation also
+passed. ROCm/CUDA/Metal inference binaries were not built. No model downloads,
+real packing, HTTP readiness, GPU/model execution, vision quality or performance
+tests were performed; previous runtime reports remain historical.
+
 ## Stable release review: Strata v0.2.9 / Maya v1.1.48
 
 Updated with the documented two-engine dry run, then apply (GitHub latest stable):

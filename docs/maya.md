@@ -28,7 +28,9 @@ nix run .#server-maya -- --config /data/glm.json
 Maya configs use `--glm-pack`. Packs created by this wrapper record and enforce
 the GLM architecture on later config generation. For GLM, effective KV modes
 are **fp16 and int8 only**. The wrapper also accepts `q4_0` and `k8v4`, but those are not effective
-GLM KV modes; use `--kv int8` explicitly when desired. Maya receives neither
+GLM KV modes. Since upstream v1.1.55, omitting `--kv` defaults to int8
+unless overridden by the KV environment setting; use `--kv fp16` to request
+FP16 explicitly (without a conflicting environment override). Maya receives neither
 Strata’s spec/prefill defaults nor its expert-profile defaults.
 
 ### Maya shard layout and config reruns
@@ -98,7 +100,7 @@ CUDA uses `prepare-maya-cuda`. GPU-free `prepare-maya-tools` config requires
 explicit `--exe /absolute/path/to/maya-ds4`; engine wrappers supply their packaged
 `maya-ds4`. No packing or inference is performed by config generation.
 No model downloads occur. Maya Metal and parallel serving are not enabled by
-this flake. The v1.1.48 frontend is patched to keep model-management APIs off by
+this flake. The frontend is patched to keep model-management APIs off by
 default. Explicit `"model_management": true` in the run config or
 `MAYA_MODEL_MANAGEMENT=1` (legacy alias `STRATA_MODEL_MANAGEMENT=1`) opts in.
 Environment settings retain upstream precedence over config; the wrapper does
@@ -278,9 +280,32 @@ for build checks and user-reported GLM text and CPU image inference results.
 
 ### Release update scope
 
-The current Maya pin is v1.1.48; see the
-[release review](maintenance.md#stable-release-review-strata-v029--maya-v1148)
-for changes and validation limits.
+The current Maya pin is v1.1.56 (`22fc101f2c109b7e7174c975ff3c2d8e9ce0a867`),
+reviewed against `465a981579ff5e91b19ff023721c6661f3c6030b` (v1.1.48).
+The llama.cpp dependency remains `3cf03257f219afbe7334045ff7c6a06ac68c627d`;
+packaged Linux targets and flags, GLM/DeepSeek GGUF packer interfaces, and
+frontend executable/config contracts need no packaging changes. DeepSeek's
+GGUF and vision packers and the GLM CPU vision build/patch are unchanged.
+
+New GLM packs preserve `exp_probs_b.bias` in F32 instead of rounding it to
+BF16. Existing packs are not repaired by an engine update: to obtain this fix,
+explicitly repack from the original shards into a fresh directory and generate
+a matching config. The wrapper does not rewrite existing packs automatically.
+Upstream also changes runtime defaults (including GLM int8 KV and DeepSeek
+RDNA3 index scoring); historical quality/performance reports do not validate
+these defaults. Qwen, EXL3, MiniMax and multi-GPU setup additions do not expand
+this adapter's supported workflows.
+
+The new attachment readers use Python's standard library; PDF handling has a
+built-in fallback. Optional host Poppler tools are not supplied by this flake.
+The frontend now persists completed web answers in `answers/` beside the config;
+keep that directory writable and treat it as conversation data.
+
+Model-free review checks passed: Maya frontend imports/help and management
+opt-in checks, inspection tools, CPU vision/tools-only preparation builds
+(including the Engram metadata rejection check), fixture tests and Linux flake
+evaluation. ROCm/CUDA compilation, real packing, HTTP readiness and GPU/model
+execution were not tested for this revision.
 MiniMax remains outside this flake's packaged targets and preparation workflows.
 DeepSeek packing rejects nonempty `deepseek41.engram.file` metadata rather than
 following an implicitly selected extra file, even outside the shard directory.

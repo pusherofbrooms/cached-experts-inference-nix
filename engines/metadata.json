@@ -2,7 +2,7 @@
   "engines": {
     "strata": {
       "repo": "Niko1221/Strata",
-      "version": "0.1.55"
+      "version": "0.1.58"
     },
     "maya": {
       "repo": "mw00/project-maya",
