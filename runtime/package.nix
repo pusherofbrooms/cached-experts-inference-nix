@@ -8,7 +8,7 @@ let
   python = pkgs.python3.withPackages (p: [ p.numpy p.regex p.pyyaml p.tqdm p.sentencepiece p.protobuf ]);
   # Maya's DeepSeek packer can follow arbitrary engram.file metadata outside --shards.
   # Keep the explicit-input contract; reject before opening it or writing a pack.
-  preparationSource = if name != "maya" then src else pkgs.runCommand "maya-preparation-source" {
+  preparationSource = if name == "strata" then "${src}/terminal" else pkgs.runCommand "maya-preparation-source" {
     nativeBuildInputs = [ pkgs.python3 ];
   } ''
     cp -R ${src} "$out"
@@ -41,6 +41,15 @@ let
 in pkgs.writeShellApplication {
   name = "prepare-${name}";
   runtimeInputs = [ python ];
+  passthru = pkgs.lib.optionalAttrs (name == "strata") {
+    packerCheck = pkgs.runCommand "strata-packer-import" {} ''
+      ${python}/bin/python ${preparationSource}/tools/iq_pack.py --help > "$out"
+      grep -q -- --compat-bf16 "$out"
+      PYTHONPATH=${preparationSource}/tools ${python}/bin/python -c \
+        'from _paths import gguf_lib; assert gguf_lib().__name__ == "strata_gguf"'
+      test -s ${preparationSource}/data/expert-profile.bin
+    '';
+  };
   text = ''
     export PREPARE_MTP_SCHEMA=${./metal_mtp_schema.json}
     export PREPARE_ENGINE=${name}
@@ -50,9 +59,13 @@ in pkgs.writeShellApplication {
     ${if executable == null then "unset ${prefix}_EXE" else "export ${prefix}_EXE=${executable}"}
     export ${prefix}_REV=${src.rev}
     export ${prefix}_SOURCE=${preparationSource}
-    export PREPARE_GGML_REV=${metadata.ggml.rev}
-    export STRATA_GGUF_PY=${llama}/gguf-py
-    export PYTHONPATH=${llama}/gguf-py
+    ${if name == "strata" then ''
+      unset STRATA_GGUF_PY PYTHONPATH PREPARE_GGML_REV
+    '' else ''
+      export PREPARE_GGML_REV=${metadata.ggml.rev}
+      export STRATA_GGUF_PY=${llama}/gguf-py
+      export PYTHONPATH=${llama}/gguf-py
+    ''}
     ${pkgs.lib.optionalString (name == "maya") ''
       if [[ "''${1-}" == "--prepare-deepseek-vision" ]]; then
         shift

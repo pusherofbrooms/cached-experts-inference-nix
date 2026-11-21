@@ -39,8 +39,8 @@ def resolve(repo, ref):
     return revision
 
 
-def cmake_version(repo, rev):
-    cmake = fetch(f'https://raw.githubusercontent.com/{repo}/{rev}/CMakeLists.txt')
+def cmake_version(repo, rev, directory=''):
+    cmake = fetch(f'https://raw.githubusercontent.com/{repo}/{rev}/{directory}CMakeLists.txt')
     versions = re.findall(r'project\s*\([^)]*?\bVERSION\s+([0-9]+(?:\.[0-9]+)+)', cmake, re.I)
     if len(versions) != 1:
         raise ValueError('cannot determine unique CMake project version; review upstream manually')
@@ -48,7 +48,10 @@ def cmake_version(repo, rev):
 
 
 # Existing engines use CMake; other source layouts require an explicit reader.
-VERSION_READERS = {'cmake': cmake_version}
+VERSION_READERS = {
+    'cmake': cmake_version,
+    'cmake-engine': lambda repo, rev: cmake_version(repo, rev, 'engine/'),
+}
 
 
 def update(root, engine, ref=None, dry_run=False):

@@ -1,6 +1,6 @@
 # Common preparation, safety and troubleshooting
 
-Model downloads and pack creation are **runtime/user operations**, not Nix build steps. Do not run upstream `setup.py` during builds: it manages Python dependencies, engine downloads and model weights. The derivations in `engines/` build selected CMake targets, with a fixed llama.cpp input and disconnected FetchContent. They do not prepare models. The native `strata-tools` and `maya-tools` packages inspect GGUFs and plan memory; they are not inference engines or complete pack-builder distributions. See the preparation packages below for packing and config generation.
+Model downloads and pack creation are **runtime/user operations**, not Nix build steps. Do not run upstream `setup.py` during builds: it manages Python dependencies, engine downloads and model weights. The derivations in `engines/` build selected CMake targets with disconnected FetchContent. Maya still uses a fixed llama.cpp input; packaged Strata targets use Strata's own quantization and vision code. They do not prepare models. The native `strata-tools` and `maya-tools` packages inspect GGUFs and plan memory; they are not inference engines or complete pack-builder distributions. See the preparation packages below for packing and config generation.
 
 ## Packaged preparation and configuration
 
@@ -91,9 +91,9 @@ Maya DeepSeek instead keeps the original shard directory recorded in its pack;
 no pack-parent shard links are needed, and its pack must be writable.
 Config generation does not validate model contents or compatibility. Native
 Strata and Maya GLM packing invoke the pinned upstream `tools/iq_pack.py`;
-Maya DeepSeek uses `tools/ds4/pack_gguf.py`. Both run from packaged source with
-Nix Python dependencies and gguf-py from the shared llama.cpp revision recorded
-in `engines/metadata.json`.
+Maya DeepSeek uses `tools/ds4/pack_gguf.py`. Both engines run from packaged
+source with Nix Python dependencies. Strata's packer uses its own GGUF tools;
+Maya uses gguf-py from the llama.cpp pin in `engines/metadata.json`.
 No installers or upstream checkout modifications are used. For native Strata
 and Maya GLM packs, `--base` permits explicit dense sharing; `--compat-bf16` can
 introduce rounding; `--experts-bin` can consume substantial disk. These options
@@ -101,8 +101,9 @@ are not supported by the DeepSeek wrapper. Original source shards must remain
 available.
 
 Existing outputs/manifests are refused unless `--force`. Force allows upstream
-in-place pack updates, not a clean rebuild; prefer a fresh directory. Failures
-may leave partial packs. Sidecar `.manifest.json` files record revisions,
+in-place pack updates, not a clean rebuild; prefer a fresh directory. Strata
+refuses symlinks and hard-linked files in an existing pack, except `dense.bin`
+shared with an explicit `--base`. Failures may leave partial packs. Sidecar `.manifest.json` files record revisions,
 absolute paths, options and commands, not model hashes or download provenance.
 
 Matching HTTP frontends are Nix packaged: `nix run .#server-strata -- --config /data/run.json`
@@ -159,7 +160,7 @@ private paths or credentials).
 These guides describe the upstream revisions packaged by this checkout, not
 necessarily the latest upstream releases. See [`../flake.lock`](../flake.lock)
 for resolved source revisions and [`../engines/metadata.json`](../engines/metadata.json)
-for package versions and the shared llama.cpp dependency.
+for package versions and Maya's llama.cpp dependency.
 
 - [Strata](https://github.com/Niko1221/Strata): `tools/iq_pack.py`, `tools/_paths.py`, `src/program/generate.cpp`, and `docs/AMD_HIP.md` (model and serving configuration).
 - [Maya](https://github.com/mw00/project-maya): `tools/iq_pack.py`, `tools/strata_tokenizer.py`, `maya.py` (GLM pack construction), `src/program/generate.cpp`, and `docs/AMD_MAYA.md` / `docs/GLM5-FLASH.md`.

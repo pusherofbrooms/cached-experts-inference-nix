@@ -18,8 +18,9 @@ Tests cover wrapper argument/config generation, path safety, pack orchestration
 and updater behavior; they do not establish real model compatibility or quality.
 
 On Linux, other checks build `strata-tools` and `maya-tools` and exercise both
-HTTP frontends' `--help`. Darwin checks exercise Strata frontend imports/help
-and the Metal environment wrapper contract; there are no Darwin tools checks.
+HTTP frontends' `--help`. Both platforms check Strata Terminal's launch plan,
+command restrictions and the tagged packer's imports. Darwin also checks the
+Metal environment wrapper contract; there are no Darwin native tools checks.
 Run `nix flake show` and `nix flake check --no-build` to inspect/evaluate outputs,
 then `nix flake check` for the current platform's checks. Build selected engine
 and CPU encoder packages separately when appropriate. None of these checks
@@ -51,14 +52,15 @@ Select one or more engines for a single transaction; duplicate names are rejecte
 `--ref` requires exactly one engine (multi-engine updates use latest releases).
 The Python API accepts either a single name or a sequence of names.
 Engine names are validated against `engines/metadata.json`, not a fixed CLI list.
-Version discovery uses the engine's optional `versionStrategy` (default `cmake`);
-currently only the CMake reader is implemented. Add an explicit reader before
-selecting another strategy; unknown strategies fail rather than guessing.
-The CMake project version is extracted from that commit, not guessed from the
-launcher release tag. Ambiguous/missing project versions require manual review.
+Version discovery uses the engine's optional `versionStrategy`: `cmake` (the
+default, root `CMakeLists.txt`) or `cmake-engine` (`engine/CMakeLists.txt`, Strata
+since the layout move). Unknown strategies fail rather than guessing. The CMake
+project version is extracted from the resolved commit, not the launcher release
+tag. Older refs with a different layout or ambiguous project versions require
+manual review.
 
-`engines/metadata.json` owns package versions and shared llama.cpp dependency
-pins. Literal flake input URLs remain explicit because flake inputs cannot use
+`engines/metadata.json` owns package versions and Maya's llama.cpp dependency
+pin. Literal flake input URLs remain explicit because flake inputs cannot use
 arbitrary imported metadata. The lock's resolved input revision is the actual
 source provenance: runtime manifests and Maya passthru use it, not version
 constants. Direct Python runtime invocation records `unknown` unless supplied
@@ -73,8 +75,8 @@ concurrent updates; process termination during final writes is not crash-atomic.
 No dependency hash is automatically guessed or replaced.
 
 Before committing an update:
-- Review the diff and upstream CMake dependency pins; update shared metadata only
-  after verifying the archive hash and both engines' dependency compatibility.
+- Review the diff and upstream CMake dependency pins. Update dependency metadata
+  only after verifying the archive hash and compatibility for its consumers.
 - Review build targets/flags, pack tool CLI and frontend config schema changes.
 - Run Python tests and `nix flake show`; on Linux build both tools packages and relevant
   GPU variants; on Darwin run its checks and build Strata Metal and its CPU encoder. Test model conversion and inference separately on real hardware.
@@ -89,6 +91,43 @@ a config argument mapping, wire the engine into the flake registry/packages,
 and add tests for its CLI, layout and safety rules. Review which shared defaults
 actually apply rather than inheriting another engine's model assumptions.
 Document runtime validation separately from automated checks.
+
+## Stable release review: Strata v0.2.17
+
+GitHub's latest stable release resolved to `12d491da4a6904eb49aaa6f2f63ec4b1a17582e3`
+(engine/Control `0.1.63`, Terminal `0.2.17`). The Strata-only updater dry run
+and apply ran in a temporary checkout with the new version reader. Maya,
+nixpkgs, and Maya's llama.cpp pin are unchanged.
+
+Adapted to the source move: native and Metal CMake projects under `engine/`;
+Python frontend, packer, and CPU vision reader under `terminal/`. Strata's
+production packages no longer need external llama.cpp: they use Strata's own
+quant layer, prompt kernels, GGUF helpers, and vision reader. The obsolete CUDA
+K-quant sidecar is no longer installed. Upstream still has ggml compatibility
+and test code. Metal ships the actual shader quant header and just the required
+kernel/data files.
+
+The new `strata-terminal` app adds serve planning, JSONL lifecycle events and
+status without upstream install/update, automatic config migration, or desktop
+management. A release-specific patch aligns plan validation with the offline
+server policy and fixes the numeric batch-groups and `--json` options. Strata's
+`pack --force` now also refuses nested output aliases before running the packer.
+Engine defaults follow upstream, including route-tail skipping off
+by default. The upstream setup RAM-budget migration is not part of this flake.
+No new backend or model family is implied. Existing packs/configs are not
+rewritten; regenerate configs explicitly when switching their store paths.
+
+Validation: all-system flake evaluation and Linux `nix flake check` passed
+(65 fixture tests). Strata ROCm `gfx1100`, CUDA `sm_86`, tools and CPU vision
+built. ROCm reported `0.1.63`; the CUDA binary could not start on this host,
+which does not provide the NVIDIA driver library `libcuda.so.1`. A generated
+config and the built-in mock engine passed loopback HTTP health/model listing,
+Terminal status, and JSONL startup/shutdown. Darwin was evaluated, not built.
+No real packing, model downloads, GPU inference, vision encoding, or performance
+measurements were run by the packaging agent. The user subsequently reported
+successful inference with the existing Strata Flash Next IQ3_S pack on ROCm.
+Their run reached about 80 tokens/s after 3,000 tokens; this was an observation,
+not a controlled benchmark.
 
 ## Stable release review: Strata v0.2.12 / Maya v1.1.56
 

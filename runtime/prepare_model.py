@@ -405,14 +405,22 @@ def main(argv=None):
             p.error('output collides with an input or input directory')
     if a.max_context < 1:
         p.error('--max-context must be positive')
-    if deepseek and a.action == 'pack':
+    if a.action == 'pack' and (deepseek or a.engine == 'strata'):
         def check_pack_entry(path):
             info = path.lstat()
-            if stat.S_ISLNK(info.st_mode) or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
-                p.error(f'existing DeepSeek pack contains a symlink or hard-linked file: {path}')
             if stat.S_ISDIR(info.st_mode):
                 for child in path.iterdir():
                     check_pack_entry(child)
+            elif not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
+                # Strata's --base deliberately links this one file and does not
+                # open it for writing. Temporary outputs and tokenizer files can
+                # be truncated by upstream, so never allow aliases there.
+                shared_dense = (a.engine == 'strata' and stat.S_ISREG(info.st_mode)
+                                and a.base and path == a.pack / 'dense.bin'
+                                and aliases(path, a.base / 'dense.bin'))
+                if not shared_dense:
+                    kind = 'DeepSeek' if deepseek else 'Strata'
+                    p.error(f'existing {kind} pack contains a symlink, hard-linked or special file: {path}')
 
         if a.pack.exists() or a.pack.is_symlink():
             check_pack_entry(a.pack)
@@ -554,9 +562,13 @@ def main(argv=None):
         print(shlex.join(command))
         print('Config-only generation does not validate model contents or compatibility.'
               + (' Maya shard layout was checked.' if a.engine == 'maya' else ''))
-    record = {'schema': 1, 'engine_revision': ADAPTERS[a.engine], 'gguf_py_revision': GGML_REV,
+    record = {'schema': 1, 'engine_revision': ADAPTERS[a.engine],
               'options': {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()},
               'command': command, 'http_frontend_packaged': True}
+    if a.engine == 'strata':
+        record['gguf_implementation'] = 'strata' if ADAPTERS[a.engine] != 'unknown' else 'unknown'
+    else:
+        record['gguf_py_revision'] = GGML_REV
     if os.environ.get('PREPARE_BACKEND'):
         record['backend'] = os.environ['PREPARE_BACKEND']
     manifest.parent.mkdir(parents=True, exist_ok=True)

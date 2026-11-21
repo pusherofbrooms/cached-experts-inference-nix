@@ -206,7 +206,7 @@ class UpdateTests(unittest.TestCase):
 class MultiUpdateTests(UpdateTests):
     def setUp(self):
         super().setUp()
-        self.metadata['engines']['strata'] = {'repo': 'c/d', 'version': '1.1'}
+        self.metadata['engines']['strata'] = {'repo': 'c/d', 'version': '1.1', 'versionStrategy': 'cmake-engine'}
         self.lock['nodes']['root']['inputs']['strata'] = 'strata'
         self.lock['nodes']['strata'] = {'locked': {'rev': 'old-strata'}}
         (self.root / PATHS[2]).write_text(json.dumps(self.metadata))
@@ -233,8 +233,12 @@ class MultiUpdateTests(UpdateTests):
         with patch.object(update, 'fetch', side_effect=[
             json.dumps({'tag_name': 'v3'}), 'project(X VERSION 3.0)',
             json.dumps({'tag_name': 'v2'}), 'project(Y VERSION 2.0)',
-        ]), patch.object(update, 'resolve', side_effect=['b' * 40, REV]):
+        ]) as fetch, patch.object(update, 'resolve', side_effect=['b' * 40, REV]):
             update.update(self.root, ['strata', 'maya'], dry_run=dry_run)
+        self.assertEqual(fetch.call_args_list[1].args,
+                         (f'https://raw.githubusercontent.com/c/d/{"b" * 40}/engine/CMakeLists.txt',))
+        self.assertEqual(fetch.call_args_list[3].args,
+                         (f'https://raw.githubusercontent.com/a/b/{REV}/CMakeLists.txt',))
 
     def test_combined_success(self):
         self.combined()

@@ -1,0 +1,32 @@
+Fix three upstream Terminal v0.2.17 serve-plan inconsistencies: use the
+server's offline policy for plans too, retain parsed numeric batch groups,
+and make the documented --json alias imply --plan.
+
+--- a/terminal/strata_cli/cli.py
++++ b/terminal/strata_cli/cli.py
+@@ -815,5 +815,8 @@
+     if values["batch_groups"] is not None and "--batch-groups" in cfg["args"]:
+         raise ProfileError("batch_groups override conflicts with --batch-groups in run config args")
+-    if values["offline"] and (cfg.get("mcp_servers") or cfg.get("before_load")):
+-        raise ProfileError("offline serving requires MCP servers and before_load to be absent")
++    if values["offline"]:
++        from strata_control.offline import ensure_strictly_offline
++        blocked = ensure_strictly_offline(cfg)
++        if blocked:
++            raise ProfileError("offline serving requires a compatible config: " + "; ".join(blocked))
+     return values, origins
+@@ -954,3 +957,5 @@
+ def _serve(a: argparse.Namespace) -> int:
++    if a.json:
++        a.plan = True
+     if a.output == "json" and not a.plan:
+         return _serve_error(a, "--output json requires --plan; use --output jsonl for foreground events")
+@@ -971,6 +976,5 @@
+     try:
+-        if a.batch_groups is not None:
+-            profiles.validate_overrides({"batch_groups": a.batch_groups if a.batch_groups == "auto"
+-                                          else int(a.batch_groups) if a.batch_groups.isdecimal() else a.batch_groups})
++        if a.batch_groups is not None and a.batch_groups.isdecimal():
++            a.batch_groups = int(a.batch_groups)
+         plan, args = _launch_plan(a.config, a)
+     except ValueError as exc:

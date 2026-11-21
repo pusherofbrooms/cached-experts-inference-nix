@@ -65,6 +65,9 @@ nix run .#server-strata -- --config /absolute/path/to/strata.json --port 8080
 nix run .#server-maya -- --config /absolute/path/to/maya.json --port 8080
 ```
 
+Strata also has a [Terminal app](docs/strata.md#strata-terminal) for launch
+plans, JSONL lifecycle events, and read-only status. It uses the same config.
+
 The config selects the engine executable, so the same frontend package works
 with ROCm, CUDA, or (for Strata on Darwin) Metal. Servers bind to loopback by default. Native engine
 `--serve` is an internal stdin protocol, **not** an HTTP server.
@@ -114,6 +117,7 @@ Every package below is also available through `nix run .#<name>`.
 | GGUF inspection/memory planning | `strata-tools`, `maya-tools` (not pack builders) |
 | CPU image encoders | `strata-vision-cpu`, `maya-vision-cpu` |
 | HTTP frontends | `server-strata`, `server-maya` (loopback by default) |
+| Strata Terminal | `strata-terminal` (local serving and status; no installer) |
 | Utilities | `download-model`, `update-engine` |
 
 Preparation packages include only their matching text engine and CPU vision
@@ -131,7 +135,7 @@ Every package below is also available through `nix run .#<name>`.
 | Metal text engine | `strata`, `strata-metal`, flake default |
 | Packing/config | `prepare-strata`, `prepare-strata-metal` |
 | CPU image encoder | `strata-vision-cpu` |
-| HTTP frontend | `server-strata` |
+| HTTP / Strata Terminal | `server-strata`, `strata-terminal` |
 
 No Maya, Linux GPU backends, inspection/tools-only preparation, `download-model`
 or `update-engine` apps are exposed on Darwin. See the Metal guide for explicit

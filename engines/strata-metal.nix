@@ -1,11 +1,7 @@
 { pkgs, src }:
 let
   metadata = builtins.fromJSON (builtins.readFile ./metadata.json);
-  ggml = pkgs.fetchzip {
-    url = "https://github.com/ggml-org/llama.cpp/archive/${metadata.ggml.rev}.tar.gz";
-    hash = metadata.ggml.hash;
-  };
-  # Apple's SDK-26 headers, pinned by upstream metal/setup_mac.py.
+  # Apple's SDK-26 headers, as used by upstream's Metal packaging.
   metalCppArchive = pkgs.fetchurl {
     url = "https://developer.apple.com/metal/cpp/files/metal-cpp_26.zip";
     hash = "sha256-TfPAeLmq3LUWIS6csDAEy8XOmj6cBo+jFE0CHbWFo6Q=";
@@ -22,13 +18,12 @@ in pkgs.stdenv.mkDerivation {
   # metal-cpp 26 uses APIs absent from the default SDK 14. The SDK hook
   # selects the sysroot; never consult the host's xcrun or installed Xcode.
   buildInputs = [ pkgs.apple-sdk_26 (pkgs.darwinMinVersionHook "15.0") ];
-  cmakeDir = "../metal";
+  cmakeDir = "../engine/metal";
   cmakeFlags = [
     "-DMETAL_CPP_DIR=${metalCpp}"
-    "-DSTRATA_GGML_DIR=${ggml}"
     "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
-    "-DGGML_NATIVE=OFF"
-    "-DGGML_CPU_ARM_ARCH=armv8-a"
+    "-DSTRATA_BUILD_TESTS=OFF"
+    "-DSTRATA_OWN_CPU_QUANT=ON"
   ];
   buildPhase = ''
     runHook preBuild
@@ -37,14 +32,16 @@ in pkgs.stdenv.mkDerivation {
   '';
   installPhase = ''
     runHook preInstall
-    mkdir -p "$out/bin/metal"
+    resources="$out/bin/metal"
+    mkdir -p "$resources"/{kernels,engine-msl,data}
     cp strata "$out/bin/strata-real"
     makeWrapper "$out/bin/strata-real" "$out/bin/strata" \
       ${import ../runtime/metal-wrapper.nix { }}
-    cp -r ../metal/kernels "$out/bin/metal/"
-    cp -r ../metal/src/engine/msl "$out/bin/metal/engine-msl"
-    cp ../third_party/ggml/ggml-common.h "$out/bin/metal/"
-    cp -r ../data "$out/bin/metal/"
+    cp ../engine/metal/kernels/*.metal "$resources/kernels/"
+    cp ../engine/metal/src/engine/msl/*.metal "$resources/engine-msl/"
+    # The runtime reads this header as MSL source; the legacy file is just a forwarding include.
+    cp ../engine/include/strata/quant/strata-quant-common.h "$resources/"
+    cp ../terminal/data/{expert-profile,draft_vocab}.bin "$resources/data/"
     runHook postInstall
   '';
   dontInstallCmake = true;

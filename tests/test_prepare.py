@@ -519,6 +519,43 @@ class Preparation(unittest.TestCase):
                 else:
                     self.assertEqual(output.read_bytes(), b'original config')
 
+    def test_strata_force_pack_rejects_nested_aliases(self):
+        for kind in ('symlink', 'hardlink', 'directory-symlink'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                gguf = root / 'model.gguf'
+                gguf.write_bytes(b'keep weights')
+                pack = root / 'pack'
+                pack.mkdir()
+                if kind == 'directory-symlink':
+                    (pack / 'tokenizer').symlink_to(root, target_is_directory=True)
+                elif kind == 'symlink':
+                    (pack / 'dense.bin.tmp').symlink_to(gguf)
+                else:
+                    (pack / 'dense.bin.tmp').hardlink_to(gguf)
+                with contextlib.redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+                    main(['strata', 'pack', '--gguf', str(gguf), '--pack', str(pack), '--force'])
+                self.assertIn('existing Strata pack', errors.getvalue())
+                self.assertEqual(gguf.read_bytes(), b'keep weights')
+                self.assertFalse((root / 'pack.manifest.json').exists())
+
+    def test_strata_force_accepts_an_explicit_shared_dense_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gguf, pack, base = root / 'model.gguf', root / 'pack', root / 'base'
+            gguf.touch()
+            base.mkdir()
+            pack.mkdir()
+            (base / 'dense.bin').write_bytes(b'shared')
+            (pack / 'dense.bin').hardlink_to(base / 'dense.bin')
+            module = SimpleNamespace(Model=lambda path: SimpleNamespace(paths=[], files=[]))
+            with patch('subprocess.run') as run, patch(
+                    'runtime.prepare_model.importlib.util.spec_from_file_location'), patch(
+                    'runtime.prepare_model.importlib.util.module_from_spec', return_value=module):
+                main(['strata', 'pack', '--gguf', str(gguf), '--pack', str(pack), '--force', '--base', str(base)])
+            self.assertEqual(run.call_args.args[0][-2:], ['--base', str(base)])
+            self.assertTrue((pack / 'dense.bin').samefile(base / 'dense.bin'))
+
     def test_packer(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -592,7 +629,7 @@ class Preparation(unittest.TestCase):
 
     def test_runtime_flags_and_manifest(self):
         for engine in ADAPTERS:
-            with tempfile.TemporaryDirectory() as tmp:
+            with tempfile.TemporaryDirectory() as tmp, patch.dict(ADAPTERS, {engine: 'pinned-rev'}):
                 root = Path(tmp)
                 pack = root/'pack'
                 (root/'a.gguf').touch()
@@ -609,6 +646,14 @@ class Preparation(unittest.TestCase):
                     self.assertIn('--mmap-experts', cfg['args'])
                     self.assertIn('1024', cfg['args'])
                     self.assertNotIn('--adapt-every', cfg['args'])
+                    record = json.loads((root/'run.json.manifest.json').read_text())
+                    self.assertEqual(record['engine_revision'], 'pinned-rev')
+                    if engine == 'strata':
+                        self.assertEqual(record['gguf_implementation'], 'strata')
+                        self.assertNotIn('gguf_py_revision', record)
+                    else:
+                        self.assertIn('gguf_py_revision', record)
+                        self.assertNotIn('gguf_implementation', record)
                     main(argv + ['--force', '--no-mmap-experts'])
                     self.assertNotIn('--mmap-experts', json.loads((root/'run.json').read_text())['args'])
                 for output in (pack, Path(str(pack) + '.manifest.json'), root):

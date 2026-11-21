@@ -2,12 +2,6 @@
 let
   metadata = builtins.fromJSON (builtins.readFile ./metadata.json);
   inherit (pkgs) lib;
-  # Cache this fixed-output input before offline builds; never run setup.py
-  # (it downloads Python packages, engines and model weights).
-  ggml = pkgs.fetchzip {
-    url = "https://github.com/ggml-org/llama.cpp/archive/${metadata.ggml.rev}.tar.gz";
-    hash = "${metadata.ggml.hash}";
-  };
   rocm = pkgs.rocmPackages;
   cuda = pkgs.cudaPackages;
   mkPackage = backend:
@@ -29,17 +23,17 @@ let
         rocm.rocm-device-libs rocm.clr rocm.hipblas rocm.rocblas rocm.hipblaslt
       ] ++ lib.optionals nvidia [ cuda.cuda_cudart cuda.libcublas cuda.cuda_cccl ];
 
+      cmakeDir = "../engine";
       cmakeFlags = [
         "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
-        "-DSTRATA_GGML_DIR=${ggml}"
         "-DSTRATA_BUILD_TESTS=OFF"
         "-DSTRATA_BUILD_CONVERSATION_TESTS=OFF"
         "-DSTRATA_ENABLE_CUDA=${if nvidia then "ON" else "OFF"}"
         "-DSTRATA_ENABLE_HIP=${if hip then "ON" else "OFF"}"
         "-DSTRATA_HIP_GFX906=OFF"
         "-DSTRATA_NATIVE_EXPERTS=${if tools then "OFF" else "ON"}"
-        # Upstream otherwise forces GGML_NATIVE=ON. Portable means AVX2/FMA/F16C,
-        # not arbitrary x86 CPUs; wider expert kernels are runtime-dispatched.
+        "-DSTRATA_OWN_CPU_QUANT=ON"
+        # Keep the portable x86 baseline (AVX2/FMA/F16C), not build-host detection.
         "-DSTRATA_PORTABLE=ON"
         "-DCMAKE_BUILD_TYPE=Release"
       ] ++ lib.optionals hip [
@@ -48,14 +42,11 @@ let
         # Upstream-validated wave32 default; override cmakeFlags for other cards.
         # CDNA/wave64 needs a separate STRATA_HIP_GFX906 build, not this backend.
         "-DCMAKE_HIP_ARCHITECTURES=gfx1100"
-        "-DSTRATA_PREFILL_MMQ=ON"
-        "-DSTRATA_MMQ_KQUANTS=ON"
       ] ++ lib.optionals nvidia [
         "-DCMAKE_CUDA_ARCHITECTURES=${lib.concatMapStringsSep ";" (lib.replaceStrings [ "." ] [ "" ]) cuda.flags.cudaCapabilities}"
       ];
 
-      # No upstream install rules. Build inference, not the default benchmark and
-      # parity-test suite. CUDA's optional K-quant DSO must stay beside the engine.
+      # Build only the intended tools/engine, not benchmarks or parity tests.
       buildPhase = ''
         runHook preBuild
         cmake --build . --parallel "$NIX_BUILD_CORES" --target ${targets}
@@ -65,9 +56,6 @@ let
         runHook preInstall
         mkdir -p "$out/bin"
         cp ${targets} "$out/bin/"
-      '' + lib.optionalString nvidia ''
-        cp libstrata_kq.so "$out/bin/"
-      '' + ''
         runHook postInstall
       '';
       dontInstallCmake = true;
@@ -85,7 +73,7 @@ rec {
   rocmPackage = mkPackage "rocm";
   cudaPackage = mkPackage "cuda";
   toolsPackage = mkPackage "tools";
-  # Vision is a separate upstream mtmd/llama project, not an engine target.
+  # The standalone Strata reader does not need llama.cpp or an inference backend.
   visionPackage = pkgs.stdenv.mkDerivation {
     pname = "strata-vision-cpu";
     version = metadata.engines.strata.version;
@@ -95,17 +83,15 @@ rec {
     buildInputs = lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
       pkgs.apple-sdk_26 (pkgs.darwinMinVersionHook "15.0")
     ];
-    cmakeDir = "../tools/vision";
+    cmakeDir = "../terminal/tools/vision";
     cmakeFlags = [
-      "-DLLAMA_DIR=${ggml}"
       "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
+      "-DSTRATA_VISION_ORACLES=OFF"
       "-DSTRATA_PORTABLE=ON"
       "-DSTRATA_VISION_CUDA=OFF"
       "-DSTRATA_VISION_HIP=OFF"
       "-DSTRATA_VISION_SYCL=OFF"
       "-DSTRATA_VISION_METAL=OFF"
-    ] ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-      "-DGGML_CPU_ARM_ARCH=armv8-a"
     ];
     buildPhase = ''
       runHook preBuild

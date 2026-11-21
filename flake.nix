@@ -3,7 +3,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     strata = {
-      url = "github:Niko1221/Strata/146df3c468739147f520ac3816de806f71232571";
+      url = "github:Niko1221/Strata/12d491da4a6904eb49aaa6f2f63ec4b1a17582e3";
       flake = false;
     };
     maya = {
@@ -72,6 +72,7 @@
         pkgs = import nixpkgs { system = "aarch64-darwin"; };
         metal = import ./engines/strata-metal.nix { inherit pkgs; src = inputs.strata; };
         vision = (import ./engines/strata.nix { inherit pkgs; src = inputs.strata; }).visionPackage;
+        server = import ./runtime/server.nix { inherit pkgs; name = "strata"; src = inputs.strata; };
         prepare = import ./runtime/package.nix {
           inherit pkgs; name = "strata"; src = inputs.strata;
           executable = "${metal}/bin/strata"; backend = "metal";
@@ -84,7 +85,8 @@
         default = metal;
         prepare-strata = prepare;
         prepare-strata-metal = prepare;
-        server-strata = import ./runtime/server.nix { inherit pkgs; name = "strata"; src = inputs.strata; };
+        server-strata = server;
+        strata-terminal = server.terminal;
       };
       apps.aarch64-darwin = nixpkgs.lib.mapAttrs (_: package: {
         type = "app"; program = nixpkgs.lib.getExe package;
@@ -93,6 +95,11 @@
         pkgs = import nixpkgs { system = "aarch64-darwin"; };
       in {
         wrapper-contract = import ./checks/wrapper-contract.nix { inherit pkgs; };
+        strata-terminal = import ./checks/strata-terminal.nix {
+          inherit pkgs;
+          terminal = self.packages.aarch64-darwin.strata-terminal;
+        };
+        strata-packer = self.packages.aarch64-darwin.prepare-strata.packerCheck;
         strata-frontend = pkgs.runCommand "strata-frontend-import" {} ''
           ${self.packages.aarch64-darwin.server-strata}/bin/server-strata --help > "$out"
           grep -q -- --config "$out"
@@ -107,6 +114,7 @@
       };
       packages.${system} = engines // preparation // servers // {
         strata-vision-cpu = registry.strata.visionPackage;
+        strata-terminal = servers.server-strata.terminal;
         maya-vision-cpu = registry.maya.visionPackage;
         update-engine = pkgs.writeShellApplication {
           name = "update-engine";
@@ -172,6 +180,11 @@
           touch "$out"
         '';
         strata-tools = engines.strata-tools;
+        strata-terminal = import ./checks/strata-terminal.nix {
+          inherit pkgs;
+          terminal = self.packages.${system}.strata-terminal;
+        };
+        strata-packer = preparation.prepare-strata-tools.packerCheck;
         maya-tools = engines.maya-tools;
       };
       devShells.${system}.default = pkgs.mkShell {
