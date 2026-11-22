@@ -1,0 +1,24 @@
+cmake_minimum_required(VERSION 3.24)
+project(strata_hy4 LANGUAGES CXX HIP)
+
+set(engine "${CMAKE_CURRENT_SOURCE_DIR}/..")
+set(run "${engine}/src/hy4flash/run")
+set(gpu_sources "${run}/hy4_main.hip.cpp" "${run}/mla_attn.hip.cpp")
+set_source_files_properties(${gpu_sources} PROPERTIES LANGUAGE HIP)
+find_package(Threads REQUIRED)
+find_package(zstd CONFIG REQUIRED)
+
+add_executable(strata-hy4 ${gpu_sources}
+  "${run}/hy4_cpu_experts.cpp"
+  "${run}/hy4_engram.cpp"
+  "${engine}/src/artifact/strata_reader.cpp"
+  "${engine}/src/ngram/hy4_engram_reader.cpp"
+  "${engine}/src/quant/sk_codecs.cpp"
+)
+set_target_properties(strata-hy4 PROPERTIES
+  CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+  HIP_STANDARD 20 HIP_STANDARD_REQUIRED ON
+)
+target_include_directories(strata-hy4 PRIVATE "${engine}/include")
+target_link_libraries(strata-hy4 PRIVATE Threads::Threads zstd::libzstd_shared)
+install(TARGETS strata-hy4 DESTINATION bin)

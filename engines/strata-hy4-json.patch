@@ -1,0 +1,44 @@
+Use vector's incomplete-element support explicitly. Clang with libstdc++
+rejects the recursive pair when the pair's constructors query JVal's traits.
+
+--- a/engine/src/hy4flash/run/hy4_json.h
++++ b/engine/src/hy4flash/run/hy4_json.h
+@@ -20,20 +20,25 @@ struct JVal {
+     std::vector<JVal> a;
+-    std::vector<std::pair<std::string, JVal>> o;
++    struct Member;
++    std::vector<Member> o;
+ 
+-    const JVal* get(const std::string& k) const {
+-        for (auto& kv : o) if (kv.first == k) return &kv.second;
+-        return nullptr;
+-    }
++    const JVal* get(const std::string& k) const;
+     const JVal& at(const std::string& k) const {
+         const JVal* v = get(k);
+         if (!v) throw std::runtime_error("json: missing key " + k);
+         return *v;
+     }
+     const JVal& operator[](size_t i) const { return a.at(i); }
+-    size_t size() const { return t == Arr ? a.size() : o.size(); }
++    size_t size() const;
+     double f() const { return num; }
+     int64_t i() const { return is_int ? i64 : (int64_t)num; }
+     const std::string& str() const { return s; }
+ };
+ 
++struct JVal::Member { std::string key; JVal value; };
++inline const JVal* JVal::get(const std::string& k) const {
++    for (const auto& kv : o) if (kv.key == k) return &kv.value;
++    return nullptr;
++}
++inline size_t JVal::size() const { return t == Arr ? a.size() : o.size(); }
++
+ class JsonParser {
+@@ -147,5 +152,5 @@ private:
+             if (p_ >= e_ || *p_ != ':') fail("no colon");
+             ++p_;
+-            v.o.emplace_back(std::move(k), value());
++            v.o.push_back({std::move(k), value()});
+             ws();
+             if (*p_ == ',') { ++p_; continue; }

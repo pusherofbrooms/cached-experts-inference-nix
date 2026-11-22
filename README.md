@@ -29,15 +29,16 @@ All commands below run from a local checkout of this repository.
 
 ## From model files to a running server
 
-**Download → pack → generate config → serve → test.** A downloaded GGUF alone
-is not ready to serve: use the matching engine's packer and configuration recipe.
-You only need one engine and one backend to get started.
+**Download → prepare → configure → serve → test.** GGUF workflows need the
+matching engine's packer; Hy4-Flash ships prebuilt weights and only needs
+its tokenizer extracted. You only need one engine and one backend.
 
 ### 1. Follow your engine's preparation guide
 
 | Engine | Nix workflow |
 | --- | --- |
-| **Strata (Linux ROCm/CUDA)** | [Download, pack, and configure](docs/strata.md#pack-and-serve); optional MTP and CPU vision |
+| **Strata Flash Next (Linux ROCm/CUDA)** | [Download, pack, and configure](docs/strata.md#pack-and-serve); optional MTP and CPU vision |
+| **Strata Hy4-Flash (experimental Linux ROCm)** | [Use prebuilt `.strata` weights with the separate Hy4 runner](docs/hy4-flash.md); no GGUF packing |
 | **Strata (Apple silicon Metal)** | [Acquire, pack, configure and serve](docs/strata.md#apple-silicon-metal); optional CPU vision |
 | **Project Maya (Linux ROCm/CUDA)** | [GLM preparation](docs/maya.md#pack-and-serve) or [DeepSeek Flash preparation](docs/maya.md#deepseek-flash-local-gguf-text-only); separate model-specific paths |
 
@@ -118,6 +119,7 @@ Every package below is also available through `nix run .#<name>`.
 | CPU image encoders | `strata-vision-cpu`, `maya-vision-cpu` |
 | HTTP frontends | `server-strata`, `server-maya` (loopback by default) |
 | Strata Terminal | `strata-terminal` (local serving and status; no installer) |
+| Hy4-Flash (experimental `gfx1100`) | `strata-hy4-rocm`, `strata-hy4-tokenizer` |
 | Utilities | `download-model`, `update-engine` |
 
 Preparation packages include only their matching text engine and CPU vision

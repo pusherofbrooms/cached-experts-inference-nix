@@ -92,6 +92,30 @@ and add tests for its CLI, layout and safety rules. Review which shared defaults
 actually apply rather than inheriting another engine's model assumptions.
 Document runtime validation separately from automated checks.
 
+## Stable release review: Strata v0.2.18
+
+The Strata-only updater dry run and apply selected
+`6e38f588a646c0ee6948a74afbe670eb75896106` (engine `0.1.64`, Terminal `0.2.18`).
+Maya, nixpkgs and Maya's llama.cpp pin are unchanged. The existing native
+packers, frontend policy and Terminal patch remain applicable.
+
+Hy4-Flash uses a standalone runner rather than the existing CMake targets.
+The Linux `strata-hy4-rocm` package builds only that runner for `gfx1100`, with
+Nix's ROCm and zstd. A small JSON header patch makes the recursive object type
+compile with Clang/libstdc++. The GPU-free tokenizer app reads the manifest of
+a local prebuilt `.strata` file and creates a new output directory. See the
+[Hy4-Flash guide](hy4-flash.md) for the separate acquisition and config flow.
+
+Validated on Linux: all-system flake evaluation, Linux flake checks (65 local
+fixture tests plus the Hy4 tokenizer check), builds of the standard ROCm and
+CPU vision packages, and the Hy4 ROCm build and model-free `--version` test.
+Three upstream Hy4 HTTP smoke tests passed with the packaged frontend's Python
+environment and a mock engine. No model download or real inference was run;
+CUDA and Darwin packages were not built. The full upstream tokenizer/template
+suite has a failing invalid-effort assertion against the tagged template; the
+flake's new check runs the tokenizer conversion tests and wrapper contract,
+not that unrelated template assertion.
+
 ## Stable release review: Strata v0.2.17
 
 GitHub's latest stable release resolved to `12d491da4a6904eb49aaa6f2f63ec4b1a17582e3`

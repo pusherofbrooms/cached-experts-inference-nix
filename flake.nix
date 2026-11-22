@@ -3,7 +3,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     strata = {
-      url = "github:Niko1221/Strata/12d491da4a6904eb49aaa6f2f63ec4b1a17582e3";
+      url = "github:Niko1221/Strata/6e38f588a646c0ee6948a74afbe670eb75896106";
       flake = false;
     };
     maya = {
@@ -114,6 +114,21 @@
       };
       packages.${system} = engines // preparation // servers // {
         strata-vision-cpu = registry.strata.visionPackage;
+        strata-hy4-rocm = import ./engines/strata-hy4.nix { inherit pkgs; src = inputs.strata; };
+        strata-hy4-tokenizer = pkgs.writeShellApplication {
+          name = "strata-hy4-tokenizer";
+          runtimeInputs = [ pkgs.coreutils ];
+          text = ''
+            if [[ $# != 2 || ! -f "$1" ]]; then
+              echo 'Usage: strata-hy4-tokenizer MODEL.strata NEW_TOKENIZER_DIR' >&2
+              exit 2
+            fi
+            # Refuse existing directories (including symlinks) and their contents.
+            mkdir -- "$2"
+            exec ${pkgs.python3.withPackages (p: [ p.zstandard ])}/bin/python -Is \
+              ${inputs.strata}/terminal/tools/hy4_tokenizer.py --strata="$1" --out="$2"
+          '';
+        };
         strata-terminal = servers.server-strata.terminal;
         maya-vision-cpu = registry.maya.visionPackage;
         update-engine = pkgs.writeShellApplication {
@@ -185,6 +200,38 @@
           terminal = self.packages.${system}.strata-terminal;
         };
         strata-packer = preparation.prepare-strata-tools.packerCheck;
+        strata-hy4-tokenizer = pkgs.runCommand "strata-hy4-tokenizer-contract" {
+          nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.zstandard p.jinja2 p.regex ])) ];
+        } ''
+          export PYTHONPATH=${inputs.strata}/terminal:${inputs.strata}/terminal/tools
+          python -m unittest -v tools.test_hy4_tokenizer.Convert
+          python - <<'PY'
+          import json, struct, zstandard
+          from pathlib import Path
+          from tools.test_hy4_tokenizer import fake_hf_tokenizer
+
+          manifest = json.dumps({"tokenizer_json": fake_hf_tokenizer(), "chat_template": "{{ messages }}"})
+          frame = zstandard.ZstdCompressor().compress(manifest.encode())
+          header = bytearray(4096)
+          header[:8] = b"STRATA\x00\x01"
+          struct.pack_into("<QQ", header, 16, len(header), len(frame))
+          Path('model.strata').write_bytes(header + frame)
+          PY
+          tokenizer=${self.apps.${system}.strata-hy4-tokenizer.program}
+          "$tokenizer" model.strata 'test tokenizer'
+          test -s 'test tokenizer/vocab.json'
+          test -s 'test tokenizer/chat_template.jinja'
+          cp 'test tokenizer/vocab.json' original.json
+          ln -s 'test tokenizer' alias
+          for dest in 'test tokenizer' alias model.strata; do
+            if "$tokenizer" model.strata "$dest"; then
+              echo "unexpectedly accepted existing output: $dest" >&2
+              exit 1
+            fi
+          done
+          cmp original.json 'test tokenizer/vocab.json'
+          touch "$out"
+        '';
         maya-tools = engines.maya-tools;
       };
       devShells.${system}.default = pkgs.mkShell {

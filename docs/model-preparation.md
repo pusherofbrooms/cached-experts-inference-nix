@@ -1,6 +1,7 @@
 # Model preparation index
 
 - [Strata: packing, defaults, MTP and CPU vision](strata.md)
+- [Strata: Hy4-Flash prebuilt weights and separate ROCm runner](hy4-flash.md)
 - [Maya: GLM packing, shard layout, KV, DFlash and CPU vision](maya.md)
 - [Maya: DeepSeek Flash text workflow](maya.md#deepseek-flash-local-gguf-text-only)
 - [Common preparation, safety and troubleshooting](common.md)
