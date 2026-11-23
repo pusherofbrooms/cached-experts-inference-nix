@@ -32,6 +32,12 @@ assert hip || backend == "cuda";
     cmake --build . --parallel "$NIX_BUILD_CORES" --target strata-inkling
     runHook postBuild
   '';
+  # Install only the runner, independent of the CMake generator.
+  installPhase = ''
+    runHook preInstall
+    install -Dm755 strata-inkling "$out/bin/strata-inkling"
+    runHook postInstall
+  '';
   meta = {
     description = "Experimental standalone Strata Inkling 2 Mini ${backend} runner (no models)";
     license = lib.licenses.mit;

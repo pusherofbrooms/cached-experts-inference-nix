@@ -10,8 +10,9 @@ app for your backend:
 | x86_64 Linux CUDA | `strata-inkling-cuda` | `prepare-inkling-cuda` |
 
 ROCm uses `rocmArchitecture` from [`settings.nix`](../settings.nix) (`gfx1100`
-by default); CUDA uses the configured nixpkgs CUDA capabilities. Linux packages
-have been evaluated, not built or run. To build and smoke-test the runner
+by default); CUDA uses the configured nixpkgs CUDA capabilities. On x86_64
+Linux, the ROCm runner has been built and smoke-tested with `--version` for
+`gfx1100`; CUDA has been evaluated only. To build and smoke-test the runner
 before downloading a model, run `nix run .#strata-inkling-rocm -- --version`
 (or substitute your runner).
 
