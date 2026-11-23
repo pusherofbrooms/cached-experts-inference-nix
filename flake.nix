@@ -3,7 +3,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     strata = {
-      url = "github:Niko1221/Strata/6e38f588a646c0ee6948a74afbe670eb75896106";
+      url = "github:Niko1221/Strata/a34979fc94f3d126b9bb8210f4ad311345688b52";
       flake = false;
     };
     maya = {
@@ -71,6 +71,7 @@
       packages.aarch64-darwin = let
         pkgs = import nixpkgs { system = "aarch64-darwin"; };
         metal = import ./engines/strata-metal.nix { inherit pkgs; src = inputs.strata; };
+        inkling = import ./engines/strata-inkling-metal.nix { inherit pkgs; src = inputs.strata; };
         vision = (import ./engines/strata.nix { inherit pkgs; src = inputs.strata; }).visionPackage;
         server = import ./runtime/server.nix { inherit pkgs; name = "strata"; src = inputs.strata; };
         prepare = import ./runtime/package.nix {
@@ -81,6 +82,14 @@
       in {
         strata = metal;
         strata-metal = metal;
+        strata-inkling-metal = inkling;
+        prepare-inkling = pkgs.writeShellApplication {
+          name = "prepare-inkling";
+          text = ''
+            exec ${pkgs.python3}/bin/python -I ${./runtime/prepare_inkling.py} \
+              ${pkgs.lib.getExe inkling} ${inputs.strata}/terminal/tools/inkling_tokenizer.py metal "$@"
+          '';
+        };
         strata-vision-cpu = vision;
         default = metal;
         prepare-strata = prepare;
@@ -95,6 +104,12 @@
         pkgs = import nixpkgs { system = "aarch64-darwin"; };
       in {
         wrapper-contract = import ./checks/wrapper-contract.nix { inherit pkgs; };
+        prepare-inkling = import ./checks/prepare-inkling.nix {
+          inherit pkgs;
+          src = inputs.strata;
+          prepare = self.packages.aarch64-darwin.prepare-inkling;
+          inkling = self.packages.aarch64-darwin.strata-inkling-metal;
+        };
         strata-terminal = import ./checks/strata-terminal.nix {
           inherit pkgs;
           terminal = self.packages.aarch64-darwin.strata-terminal;
@@ -112,7 +127,25 @@
           touch "$out"
         '';
       };
-      packages.${system} = engines // preparation // servers // {
+      packages.${system} = let
+        inkling = backend: import ./engines/strata-inkling-linux.nix {
+          inherit pkgs backend;
+          inherit (settings) rocmArchitecture;
+          src = inputs.strata;
+        };
+        prepareInkling = backend: pkgs.writeShellApplication {
+          name = "prepare-inkling-${backend}";
+          text = ''
+            exec ${pkgs.python3}/bin/python -I ${./runtime/prepare_inkling.py} \
+              ${pkgs.lib.getExe (inkling backend)} ${inputs.strata}/terminal/tools/inkling_tokenizer.py \
+              ${if backend == "rocm" then "hip" else backend} "$@"
+          '';
+        };
+      in engines // preparation // servers // {
+        strata-inkling-rocm = inkling "rocm";
+        strata-inkling-cuda = inkling "cuda";
+        prepare-inkling-rocm = prepareInkling "rocm";
+        prepare-inkling-cuda = prepareInkling "cuda";
         strata-vision-cpu = registry.strata.visionPackage;
         strata-hy4-rocm = import ./engines/strata-hy4.nix { inherit pkgs; src = inputs.strata; };
         strata-hy4-tokenizer = pkgs.writeShellApplication {

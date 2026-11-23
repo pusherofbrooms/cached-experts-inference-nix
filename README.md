@@ -38,6 +38,7 @@ its tokenizer extracted. You only need one engine and one backend.
 | Engine | Nix workflow |
 | --- | --- |
 | **Strata Flash Next (Linux ROCm/CUDA)** | [Download, pack, and configure](docs/strata.md#pack-and-serve); optional MTP and CPU vision |
+| **Strata Inkling 2 Mini (experimental Metal, ROCm, CUDA)** | [Download one native pack and prepare baseline/DSpark configs](docs/inkling.md) |
 | **Strata Hy4-Flash (experimental Linux ROCm)** | [Use prebuilt `.strata` weights with the separate Hy4 runner](docs/hy4-flash.md); no GGUF packing |
 | **Strata (Apple silicon Metal)** | [Acquire, pack, configure and serve](docs/strata.md#apple-silicon-metal); optional CPU vision |
 | **Project Maya (Linux ROCm/CUDA)** | [GLM preparation](docs/maya.md#pack-and-serve) or [DeepSeek Flash preparation](docs/maya.md#deepseek-flash-local-gguf-text-only); separate model-specific paths |
