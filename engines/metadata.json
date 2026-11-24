@@ -2,7 +2,7 @@
   "engines": {
     "strata": {
       "repo": "Niko1221/Strata",
-      "version": "0.1.66",
+      "version": "0.1.67",
       "versionStrategy": "cmake-engine"
     },
     "maya": {
